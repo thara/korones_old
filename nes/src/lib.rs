@@ -5,6 +5,7 @@ mod bus;
 mod cpu;
 mod data_types;
 mod emulator;
+mod interrupt;
 mod nes;
 mod prelude;
 

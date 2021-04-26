@@ -1,5 +1,7 @@
 mod instruction;
+mod interrupt;
 
+use crate::interrupt::Interrupt;
 use crate::prelude::*;
 
 #[derive(Debug, Default)]
@@ -10,6 +12,12 @@ pub struct Cpu {
     s: Byte,
     p: Status,
     pc: Word,
+}
+
+impl Cpu {
+    pub fn interrupted(&self) -> bool {
+        self.p.contains(Status::I)
+    }
 }
 
 bitflags! {
@@ -45,6 +53,33 @@ pub fn step<M: Bus, C: CpuClock>(nes: &mut Nes) {
     let opcode = fetch::<CpuBus<M, C>>(nes);
     let instruction = decode(opcode);
     execute::<CpuBus<M, C>, C>(nes, instruction);
+}
+
+pub fn handle_interrupt<M: Bus, C: CpuClock>(nes: &mut Nes) {
+    let current = nes.interrupt.get();
+    match current {
+        Interrupt::RESET => {
+            interrupt::reset::<CpuBus<M, C>>(nes);
+            nes.interrupt.remove(current)
+        }
+        Interrupt::NMI => {
+            interrupt::non_markable_interrupt::<CpuBus<M, C>>(nes);
+            nes.interrupt.remove(current)
+        }
+        Interrupt::IRQ => {
+            if nes.cpu.interrupted() {
+                interrupt::interrupt_request::<CpuBus<M, C>>(nes);
+                nes.interrupt.remove(current)
+            }
+        }
+        Interrupt::BRK => {
+            if nes.cpu.interrupted() {
+                interrupt::break_interrupt::<CpuBus<M, C>>(nes);
+                nes.interrupt.remove(current)
+            }
+        }
+        _ => {}
+    }
 }
 
 fn fetch<M: Bus>(nes: &mut Nes) -> Byte {
