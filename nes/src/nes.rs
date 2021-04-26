@@ -1,4 +1,5 @@
 use crate::cpu::{Cpu, CpuClock};
+use crate::interrupt::Interrupt;
 use crate::prelude::*;
 
 pub struct Nes {
@@ -6,6 +7,8 @@ pub struct Nes {
     pub cpu: Cpu,
     pub wram: [u8; 0x2000],
     pub cpu_cycles: u128,
+
+    pub interrupt: Interrupt,
 
     pub cycles: u128,
 }
@@ -16,6 +19,7 @@ impl Nes {
             cpu: Default::default(),
             wram: [0; 0x2000],
             cpu_cycles: 0,
+            interrupt: Default::default(),
             cycles: 0,
         }
     }

@@ -1,8 +1,11 @@
 mod instruction;
 mod interrupt;
+mod trace;
 
 use crate::interrupt::Interrupt;
 use crate::prelude::*;
+
+pub use trace::Trace;
 
 #[derive(Debug, Default)]
 pub struct Cpu {
@@ -15,6 +18,15 @@ pub struct Cpu {
 }
 
 impl Cpu {
+    pub fn nestest() -> Self {
+        Self {
+            pc: 0xC000u16.into(),
+            // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
+            p: Status::from_bits_truncate(0x24),
+            ..Default::default()
+        }
+    }
+
     pub fn interrupted(&self) -> bool {
         self.p.contains(Status::I)
     }
