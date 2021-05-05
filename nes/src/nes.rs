@@ -1,5 +1,6 @@
-use crate::cpu::{Cpu, CpuClock};
+use crate::cpu::Cpu;
 use crate::interrupt::Interrupt;
+use crate::ppu::{Ppu, Scan};
 use crate::prelude::*;
 
 pub struct Nes {
@@ -9,6 +10,11 @@ pub struct Nes {
     pub cpu_cycles: u128,
 
     pub interrupt: Interrupt,
+
+    // PPU
+    pub ppu: Ppu,
+    pub scan: Scan,
+    pub frames: u64,
 
     pub cycles: u128,
 }
@@ -20,6 +26,9 @@ impl Nes {
             wram: [0; 0x2000],
             cpu_cycles: 0,
             interrupt: Default::default(),
+            ppu: Ppu::new(),
+            scan: Default::default(),
+            frames: 0,
             cycles: 0,
         }
     }
@@ -42,13 +51,5 @@ impl Bus for SystemBus {
             0x0000..=0x1FFF => nes.wram[a as usize] = value.into(),
             _ => unimplemented!(),
         }
-    }
-}
-
-pub struct SystemClock {}
-
-impl CpuClock for SystemClock {
-    fn tick(nes: &mut Nes) {
-        nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
     }
 }
