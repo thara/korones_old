@@ -1,5 +1,6 @@
-use crate::cpu::{Cpu, CpuClock};
+use crate::cpu::Cpu;
 use crate::interrupt::Interrupt;
+use crate::ppu::{self, Ppu};
 use crate::prelude::*;
 
 pub struct Nes {
@@ -10,7 +11,12 @@ pub struct Nes {
 
     pub interrupt: Interrupt,
 
+    // PPU
+    pub ppu: Ppu,
+
     pub cycles: u128,
+
+    pub mirroring: Mirroring,
 }
 
 impl Nes {
@@ -20,9 +26,16 @@ impl Nes {
             wram: [0; 0x2000],
             cpu_cycles: 0,
             interrupt: Default::default(),
+            ppu: Ppu::new(),
             cycles: 0,
+            mirroring: Mirroring::Vertical,
         }
     }
+}
+
+pub enum Mirroring {
+    Vertical,
+    Horizontal,
 }
 
 pub struct SystemBus {}
@@ -32,6 +45,7 @@ impl Bus for SystemBus {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => nes.wram[a as usize].into(),
+            0x2000..=0x3FFF => ppu::read_register(to_ppu_addr(a), nes),
             _ => unimplemented!(),
         }
     }
@@ -40,15 +54,13 @@ impl Bus for SystemBus {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => nes.wram[a as usize] = value.into(),
+            0x2000..=0x3FFF => ppu::write_register(addr, value, nes),
             _ => unimplemented!(),
         }
     }
 }
 
-pub struct SystemClock {}
-
-impl CpuClock for SystemClock {
-    fn tick(nes: &mut Nes) {
-        nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
-    }
+fn to_ppu_addr(addr: u16) -> u16 {
+    // repears every 8 bytes
+    0x2000u16.wrapping_add(addr) % 8
 }

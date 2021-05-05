@@ -1,5 +1,6 @@
-use crate::cpu::{self, handle_interrupt, Cpu, Trace};
-use crate::nes::{Nes, SystemBus, SystemClock};
+use crate::cpu::{self, handle_interrupt, Cpu, CpuClock, Trace};
+use crate::nes::{Nes, SystemBus};
+use crate::ppu;
 
 pub struct Emulator {
     nes: Nes,
@@ -34,5 +35,15 @@ impl Emulator {
                 break;
             }
         }
+    }
+}
+
+pub struct SystemClock {}
+
+impl CpuClock for SystemClock {
+    fn tick(nes: &mut Nes) {
+        nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
+
+        ppu::step(nes);
     }
 }

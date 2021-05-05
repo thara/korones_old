@@ -7,6 +7,7 @@ mod data_types;
 mod emulator;
 mod interrupt;
 mod nes;
+mod ppu;
 mod prelude;
 
 pub use emulator::Emulator;
