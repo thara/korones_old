@@ -44,6 +44,8 @@ impl CpuClock for SystemClock {
     fn tick(nes: &mut Nes) {
         nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
 
-        ppu::step(nes);
+        if let Some(interrupt) = ppu::step(nes) {
+            nes.interrupt = interrupt;
+        }
     }
 }

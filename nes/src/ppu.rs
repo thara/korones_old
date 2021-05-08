@@ -47,7 +47,7 @@ pub fn step(nes: &mut Nes) -> Option<Interrupt> {
         }
     }
 
-    if let ScanNext::Frame = nes.scan.next() {
+    if let ScanEvent::NextFrame = nes.scan.next() {
         nes.frames += 1;
     }
 
@@ -769,7 +769,7 @@ impl Scan {
         self.dot += 1;
     }
 
-    fn next(&mut self) -> ScanNext {
+    fn next(&mut self) -> ScanEvent {
         self.dot = self.dot.wrapping_add(1);
         if MAX_DOT <= self.dot {
             self.dot %= MAX_DOT;
@@ -777,20 +777,20 @@ impl Scan {
             self.line += 1;
             if MAX_LINE < self.line {
                 self.line = 0;
-                ScanNext::Frame
+                ScanEvent::NextFrame
             } else {
-                ScanNext::Line
+                ScanEvent::NextLine
             }
         } else {
-            ScanNext::Dot
+            ScanEvent::NextDot
         }
     }
 }
 
-enum ScanNext {
-    Dot,
-    Line,
-    Frame,
+enum ScanEvent {
+    NextDot,
+    NextLine,
+    NextFrame,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
