@@ -1,3 +1,5 @@
+mod nesfile;
+
 use crate::prelude::*;
 
 pub enum Mirroring {

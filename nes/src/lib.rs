@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate bitflags;
+#[macro_use]
+extern crate binread;
 
 mod bus;
 mod cpu;
