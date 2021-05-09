@@ -1,5 +1,6 @@
 use crate::cpu::Cpu;
 use crate::interrupt::Interrupt;
+use crate::mapper::{Mapper, MapperDefault};
 use crate::ppu::{self, Ppu};
 use crate::prelude::*;
 
@@ -16,7 +17,7 @@ pub struct Nes {
 
     pub cycles: u128,
 
-    pub mirroring: Mirroring,
+    pub mapper: Box<dyn Mapper>,
 }
 
 impl Nes {
@@ -28,14 +29,9 @@ impl Nes {
             interrupt: Default::default(),
             ppu: Ppu::new(),
             cycles: 0,
-            mirroring: Mirroring::Vertical,
+            mapper: Box::new(MapperDefault {}),
         }
     }
-}
-
-pub enum Mirroring {
-    Vertical,
-    Horizontal,
 }
 
 pub struct SystemBus {}
@@ -46,6 +42,9 @@ impl Bus for SystemBus {
         match a {
             0x0000..=0x1FFF => nes.wram[a as usize].into(),
             0x2000..=0x3FFF => ppu::read_register(to_ppu_addr(a), nes),
+            0x4000..=0x4013 | 0x4015 => todo!("APU"),
+            0x4016 | 0x4017 => todo!("controller"),
+            0x4020..=0xFFFF => nes.mapper.read(addr),
             _ => unimplemented!(),
         }
     }
@@ -55,6 +54,10 @@ impl Bus for SystemBus {
         match a {
             0x0000..=0x1FFF => nes.wram[a as usize] = value.into(),
             0x2000..=0x3FFF => ppu::write_register(addr, value, nes),
+            0x4000..=0x4013 | 0x4015 => todo!("APU"),
+            0x4016 => todo!("controller 1"),
+            0x4017 => todo!("controller 2 & APU"),
+            0x4020..=0xFFFF => nes.mapper.write(addr, value),
             _ => unimplemented!(),
         }
     }

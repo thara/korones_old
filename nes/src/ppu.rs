@@ -2,7 +2,7 @@ mod register;
 mod vram_address;
 
 use crate::interrupt::Interrupt;
-use crate::nes::Mirroring;
+use crate::mapper::Mirroring;
 use crate::prelude::*;
 
 use self::register::{Controller, Mask, Status};
@@ -60,6 +60,8 @@ pub struct Ppu {
     sprites: [Sprite; SPRITE_LIMIT],
     sprite_zero_on_line: bool,
 
+    pub mirroring: Mirroring,
+
     scan: Scan,
     frames: u64,
 }
@@ -89,6 +91,7 @@ impl Ppu {
             at_shift: Default::default(),
             sprites: [Default::default(); SPRITE_LIMIT],
             sprite_zero_on_line: false,
+            mirroring: Mirroring::Vertical,
             scan: Default::default(),
             frames: 0,
         }
@@ -221,7 +224,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch nametable byte : step 2
                 2 => {
-                    nes.ppu.nt_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
+                    nes.ppu.nt_latch = PpuBus::read(nes.ppu.bg_addr, nes);
                 }
                 // Fetch attribute table byte : step 1
                 3 => {
@@ -229,7 +232,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch attribute table byte : step 2
                 4 => {
-                    nes.ppu.at_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
+                    nes.ppu.at_latch = PpuBus::read(nes.ppu.bg_addr, nes);
                     if nes.ppu.v.coarse_x_scroll().nth(0) == 1 {
                         nes.ppu.at_latch >>= 1
                     }
@@ -250,7 +253,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch tile bitmap low byte : step 2
                 6 => {
-                    nes.ppu.bg.low = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
+                    nes.ppu.bg.low = PpuBus::read(nes.ppu.bg_addr.into(), nes).into();
                 }
                 // Fetch tile bitmap high byte : step 1
                 7 => {
@@ -258,7 +261,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch tile bitmap high byte : step 2
                 0 => {
-                    nes.ppu.bg.high = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
+                    nes.ppu.bg.high = PpuBus::read(nes.ppu.bg_addr, nes).into();
                     if nes.ppu.mask.contains(Mask::RENDER_ENABLED) {
                         nes.ppu.incr_coarse_x();
                     }
@@ -268,7 +271,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
         }
         256 => {
             nes.ppu.background_shift();
-            nes.ppu.bg.high = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
+            nes.ppu.bg.high = PpuBus::read(nes.ppu.bg_addr, nes).into();
             if nes.ppu.mask.contains(Mask::RENDER_ENABLED) {
                 nes.ppu.incr_y();
             }
@@ -295,7 +298,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
             nes.ppu.bg_addr = NAME_TABLE_FIRST | nes.ppu.v.name_table_address_index();
         }
         338 | 340 => {
-            nes.ppu.nt_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
+            nes.ppu.nt_latch = PpuBus::read(nes.ppu.bg_addr, nes);
         }
         341 => {
             if nes.ppu.mask.contains(Mask::RENDER_ENABLED) && nes.ppu.frames % 2 == 0 {
@@ -326,7 +329,7 @@ fn render_pixel(nes: &mut Nes) {
         }
     };
 
-    let _pixel = nes.ppu.read(addr.into(), &nes.mirroring);
+    let _pixel = PpuBus::read(addr.into(), nes);
     // render pixel
 }
 
@@ -385,8 +388,8 @@ fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) 
         };
 
         let tile_addr = base + tile_idx * 16 + row;
-        let low = nes.ppu.read(tile_addr.into(), &nes.mirroring);
-        let high = nes.ppu.read((tile_addr + 8).into(), &nes.mirroring);
+        let low = PpuBus::read(tile_addr.into(), nes);
+        let high = PpuBus::read((tile_addr + 8).into(), nes);
 
         let pixel = low.nth(col) + (high.nth(col) << 1);
         if pixel == 0 {
@@ -477,30 +480,35 @@ impl Ppu {
     }
 }
 
-impl Ppu {
-    fn read(&mut self, addr: Word, mirroring: &Mirroring) -> Byte {
+struct PpuBus {}
+
+impl PpuBus {
+    fn read(addr: Word, nes: &mut Nes) -> Byte {
         let a: u16 = addr.into();
         match a {
-            0x0000..=0x1FFF => unimplemented!("mapper"),
-            0x2000..=0x2FFF => self.name_table[to_name_table_addr(a, mirroring)],
-            0x3000..=0x3EFF => self.name_table[to_name_table_addr(addr - 0x1000u16, mirroring)],
-            0x3F00..=0x3FFF => self.pallete_ram_idx[to_pallete_addr(a)],
+            0x0000..=0x1FFF => nes.mapper.read(addr),
+            0x2000..=0x2FFF => nes.ppu.name_table[to_name_table_addr(a, &nes.ppu.mirroring)],
+            0x3000..=0x3EFF => {
+                nes.ppu.name_table[to_name_table_addr(addr - 0x1000u16, &nes.ppu.mirroring)]
+            }
+            0x3F00..=0x3FFF => nes.ppu.pallete_ram_idx[to_pallete_addr(a)],
             _ => Default::default(),
         }
     }
 
-    fn write(&mut self, addr: Word, value: Byte, mirroring: &Mirroring) {
+    fn write(addr: Word, value: Byte, nes: &mut Nes) {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => unimplemented!("mapper"),
             0x2000..=0x2FFF => {
-                self.name_table[to_name_table_addr(a, mirroring)] = value.into();
+                nes.ppu.name_table[to_name_table_addr(a, &nes.ppu.mirroring)] = value.into();
             }
             0x3000..=0x3EFF => {
-                self.name_table[to_name_table_addr(addr - 0x1000u16, mirroring)] = value.into();
+                nes.ppu.name_table[to_name_table_addr(addr - 0x1000u16, &nes.ppu.mirroring)] =
+                    value.into();
             }
             0x3F00..=0x3FFF => {
-                self.pallete_ram_idx[to_pallete_addr(a)] = value.into();
+                nes.ppu.pallete_ram_idx[to_pallete_addr(a)] = value.into();
             }
             _ => {}
         }

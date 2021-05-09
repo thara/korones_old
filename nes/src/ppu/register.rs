@@ -1,4 +1,4 @@
-use super::Ppu;
+use super::{Ppu, PpuBus};
 use crate::prelude::*;
 
 bitflags! {
@@ -90,10 +90,10 @@ pub fn read_register(addr: impl Into<u16>, nes: &mut Nes) -> Byte {
             let v: u16 = nes.ppu.v.into();
             let result = if v <= 0x3EFFu16 {
                 let data = nes.ppu.data;
-                nes.ppu.data = nes.ppu.read(nes.ppu.v.into(), &nes.mirroring);
+                nes.ppu.data = PpuBus::read(nes.ppu.v.into(), nes);
                 data
             } else {
-                nes.ppu.read(nes.ppu.v.into(), &nes.mirroring)
+                PpuBus::read(nes.ppu.v.into(), nes)
             };
             nes.ppu.incr_v();
             result
@@ -120,7 +120,7 @@ pub fn write_register(addr: impl Into<u16>, value: Byte, nes: &mut Nes) {
         0x2005 => nes.ppu.write_scroll(value),
         0x2006 => nes.ppu.write_vram_address(value),
         0x2007 => {
-            nes.ppu.write(nes.ppu.v.into(), value, &nes.mirroring);
+            PpuBus::write(nes.ppu.v.into(), value, nes);
             nes.ppu.incr_v();
         }
         _ => {}

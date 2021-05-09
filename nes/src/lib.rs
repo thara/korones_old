@@ -6,6 +6,7 @@ mod cpu;
 mod data_types;
 mod emulator;
 mod interrupt;
+mod mapper;
 mod nes;
 mod ppu;
 mod prelude;
