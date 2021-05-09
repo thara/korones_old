@@ -58,7 +58,7 @@ impl Bus for SystemBus {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => nes.wram[a as usize] = value.into(),
-            0x2000..=0x3FFF => ppu::write_register::<Self, Word>(addr, value, nes),
+            0x2000..=0x3FFF => ppu::write_register(addr, value, nes),
             _ => unimplemented!(),
         }
     }

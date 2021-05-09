@@ -17,6 +17,85 @@ const TILE_HEIGHT: Byte = Byte::new(8);
 const MAX_DOT: u16 = 340;
 const MAX_LINE: u16 = 261;
 
+pub struct Ppu {
+    // PPUCTRL
+    controller: Controller,
+    // PPUMASK
+    mask: Mask,
+    // PPUSTATUS
+    status: Status,
+    // OAMADDR
+    oam_address: usize,
+    // OAMDATA
+    primary_oam: [u8; OAM_SIZE],
+    secondary_oam: [u8; 32],
+    // PPUSCROLL
+    fine_x: Byte, // Fine X scroll
+    // PPUADDR
+    v: VRAMAddress, // current VRAM address
+    t: VRAMAddress, // temporary VRAM address
+    // PPUDATA
+    data: Byte,
+
+    write_toggle: bool,
+    // http://wiki.nesdev.com/w/index.php/PPU_registers#Ports
+    internal_data_bus: u8,
+
+    name_table: [Byte; 0x1000],
+    pallete_ram_idx: [Byte; 0x0020],
+
+    // Background
+    bg: BackgroundPattern,
+    bg_addr: Word,
+    nt_latch: Byte,
+    at_latch: Byte,
+    bg_shift: BackgroundPattern,
+    at_shift: BackgroundPatternAttr,
+
+    // Sprites
+    sprites: [Sprite; SPRITE_LIMIT],
+    sprite_zero_on_line: bool,
+}
+
+impl Ppu {
+    pub fn new() -> Self {
+        Self {
+            controller: Default::default(),
+            mask: Default::default(),
+            status: Default::default(),
+            oam_address: Default::default(),
+            primary_oam: [Default::default(); OAM_SIZE],
+            secondary_oam: [Default::default(); 32],
+            fine_x: Default::default(),
+            v: Default::default(),
+            t: Default::default(),
+            data: Default::default(),
+            write_toggle: false,
+            internal_data_bus: 0,
+            name_table: [Default::default(); 0x1000],
+            pallete_ram_idx: [Default::default(); 0x0020],
+            bg: Default::default(),
+            bg_addr: Default::default(),
+            nt_latch: Default::default(),
+            at_latch: Default::default(),
+            bg_shift: Default::default(),
+            at_shift: Default::default(),
+            sprites: [Default::default(); SPRITE_LIMIT],
+            sprite_zero_on_line: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.controller = Default::default();
+        self.mask = Default::default();
+        self.status = Default::default();
+        self.data = 0x00.into();
+
+        self.name_table = [Default::default(); 0x1000];
+        self.pallete_ram_idx = [Default::default(); 0x0020];
+    }
+}
+
 pub fn step(nes: &mut Nes) -> Option<Interrupt> {
     let mut interrupt = None;
 
@@ -136,7 +215,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch nametable byte : step 2
                 2 => {
-                    nes.ppu.nt_latch = PpuBus::read(nes.ppu.bg_addr, nes);
+                    nes.ppu.nt_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
                 }
                 // Fetch attribute table byte : step 1
                 3 => {
@@ -144,7 +223,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch attribute table byte : step 2
                 4 => {
-                    nes.ppu.at_latch = PpuBus::read(nes.ppu.bg_addr, nes);
+                    nes.ppu.at_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
                     if nes.ppu.v.coarse_x_scroll().nth(0) == 1 {
                         nes.ppu.at_latch >>= 1
                     }
@@ -165,7 +244,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch tile bitmap low byte : step 2
                 6 => {
-                    nes.ppu.bg.low = PpuBus::read(nes.ppu.bg_addr, nes).into();
+                    nes.ppu.bg.low = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
                 }
                 // Fetch tile bitmap high byte : step 1
                 7 => {
@@ -173,7 +252,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
                 }
                 // Fetch tile bitmap high byte : step 2
                 0 => {
-                    nes.ppu.bg.high = PpuBus::read(nes.ppu.bg_addr, nes).into();
+                    nes.ppu.bg.high = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
                     if nes.ppu.mask.contains(Mask::RENDER_ENABLED) {
                         nes.ppu.incr_coarse_x();
                     }
@@ -183,7 +262,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
         }
         256 => {
             nes.ppu.background_shift();
-            nes.ppu.bg.high = PpuBus::read(nes.ppu.bg_addr, nes).into();
+            nes.ppu.bg.high = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring).into();
             if nes.ppu.mask.contains(Mask::RENDER_ENABLED) {
                 nes.ppu.incr_y();
             }
@@ -210,7 +289,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
             nes.ppu.bg_addr = NAME_TABLE_FIRST | nes.ppu.v.name_table_address_index();
         }
         338 | 340 => {
-            nes.ppu.nt_latch = PpuBus::read(nes.ppu.bg_addr, nes);
+            nes.ppu.nt_latch = nes.ppu.read(nes.ppu.bg_addr, &nes.mirroring);
         }
         341 => {
             if nes.ppu.mask.contains(Mask::RENDER_ENABLED) && nes.frames % 2 == 0 {
@@ -241,7 +320,7 @@ fn render_pixel(nes: &mut Nes) {
         }
     };
 
-    let _pixel = PpuBus::read(addr.into(), nes);
+    let _pixel = nes.ppu.read(addr.into(), &nes.mirroring);
     // render pixel
 }
 
@@ -290,8 +369,8 @@ fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) 
         };
 
         let tile_addr = base + tile_idx * 16 + row;
-        let low = PpuBus::read(tile_addr.into(), nes);
-        let high = PpuBus::read((tile_addr + 8).into(), nes);
+        let low = nes.ppu.read(tile_addr.into(), &nes.mirroring);
+        let high = nes.ppu.read((tile_addr + 8).into(), &nes.mirroring);
 
         let pixel = low.nth(col) + (high.nth(col) << 1);
         if pixel == 0 {
@@ -311,85 +390,6 @@ fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) 
         return (pixel.into(), sprite.attr);
     }
     (0, Default::default())
-}
-
-pub struct Ppu {
-    // PPUCTRL
-    controller: Controller,
-    // PPUMASK
-    mask: Mask,
-    // PPUSTATUS
-    status: Status,
-    // OAMADDR
-    oam_address: usize,
-    // OAMDATA
-    primary_oam: [u8; OAM_SIZE],
-    secondary_oam: [u8; 32],
-    // PPUSCROLL
-    fine_x: Byte, // Fine X scroll
-    // PPUADDR
-    v: VRAMAddress, // current VRAM address
-    t: VRAMAddress, // temporary VRAM address
-    // PPUDATA
-    data: Byte,
-
-    write_toggle: bool,
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#Ports
-    internal_data_bus: u8,
-
-    name_table: [Byte; 0x1000],
-    pallete_ram_idx: [Byte; 0x0020],
-
-    // Background
-    bg: BackgroundPattern,
-    bg_addr: Word,
-    nt_latch: Byte,
-    at_latch: Byte,
-    bg_shift: BackgroundPattern,
-    at_shift: BackgroundPatternAttr,
-
-    // Sprites
-    sprites: [Sprite; SPRITE_LIMIT],
-    sprite_zero_on_line: bool,
-}
-
-impl Ppu {
-    pub fn new() -> Self {
-        Self {
-            controller: Default::default(),
-            mask: Default::default(),
-            status: Default::default(),
-            oam_address: Default::default(),
-            primary_oam: [Default::default(); OAM_SIZE],
-            secondary_oam: [Default::default(); 32],
-            fine_x: Default::default(),
-            v: Default::default(),
-            t: Default::default(),
-            data: Default::default(),
-            write_toggle: false,
-            internal_data_bus: 0,
-            name_table: [Default::default(); 0x1000],
-            pallete_ram_idx: [Default::default(); 0x0020],
-            bg: Default::default(),
-            bg_addr: Default::default(),
-            nt_latch: Default::default(),
-            at_latch: Default::default(),
-            bg_shift: Default::default(),
-            at_shift: Default::default(),
-            sprites: [Default::default(); SPRITE_LIMIT],
-            sprite_zero_on_line: false,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.controller = Default::default();
-        self.mask = Default::default();
-        self.status = Default::default();
-        self.data = 0x00.into();
-
-        self.name_table = [Default::default(); 0x1000];
-        self.pallete_ram_idx = [Default::default(); 0x0020];
-    }
 }
 
 // register access
@@ -548,10 +548,10 @@ pub fn read_register(addr: impl Into<u16>, nes: &mut Nes) -> Byte {
             let v: u16 = nes.ppu.v.into();
             let result = if v <= 0x3EFFu16 {
                 let data = nes.ppu.data;
-                nes.ppu.data = PpuBus::read(nes.ppu.v.into(), nes);
+                nes.ppu.data = nes.ppu.read(nes.ppu.v.into(), &nes.mirroring);
                 data
             } else {
-                PpuBus::read(nes.ppu.v.into(), nes)
+                nes.ppu.read(nes.ppu.v.into(), &nes.mirroring)
             };
             nes.ppu.incr_v();
             result
@@ -563,7 +563,7 @@ pub fn read_register(addr: impl Into<u16>, nes: &mut Nes) -> Byte {
     result
 }
 
-pub fn write_register<M: Bus, A: Into<u16>>(addr: A, value: Byte, nes: &mut Nes) {
+pub fn write_register(addr: impl Into<u16>, value: Byte, nes: &mut Nes) {
     match addr.into() {
         0x2000u16 => nes.ppu.write_controller(value.into()),
         0x2001 => nes.ppu.mask = Mask::from_bits_truncate(value.into()),
@@ -578,42 +578,37 @@ pub fn write_register<M: Bus, A: Into<u16>>(addr: A, value: Byte, nes: &mut Nes)
         0x2005 => nes.ppu.write_scroll(value),
         0x2006 => nes.ppu.write_vram_address(value),
         0x2007 => {
-            M::write(nes.ppu.v.into(), value, nes);
+            nes.ppu.write(nes.ppu.v.into(), value, &nes.mirroring);
             nes.ppu.incr_v();
         }
         _ => {}
     }
 }
 
-pub enum PpuBus {}
-
-impl Bus for PpuBus {
-    fn read(addr: Word, nes: &mut Nes) -> Byte {
+impl Ppu {
+    fn read(&mut self, addr: Word, mirroring: &Mirroring) -> Byte {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => unimplemented!("mapper"),
-            0x2000..=0x2FFF => nes.ppu.name_table[to_name_table_addr(a, &nes.mirroring)],
-            0x3000..=0x3EFF => {
-                nes.ppu.name_table[to_name_table_addr(addr - 0x1000u16, &nes.mirroring)]
-            }
-            0x3F00..=0x3FFF => nes.ppu.pallete_ram_idx[to_pallete_addr(a)],
+            0x2000..=0x2FFF => self.name_table[to_name_table_addr(a, mirroring)],
+            0x3000..=0x3EFF => self.name_table[to_name_table_addr(addr - 0x1000u16, mirroring)],
+            0x3F00..=0x3FFF => self.pallete_ram_idx[to_pallete_addr(a)],
             _ => Default::default(),
         }
     }
 
-    fn write(addr: Word, value: Byte, nes: &mut Nes) {
+    fn write(&mut self, addr: Word, value: Byte, mirroring: &Mirroring) {
         let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => unimplemented!("mapper"),
             0x2000..=0x2FFF => {
-                nes.ppu.name_table[to_name_table_addr(a, &nes.mirroring)] = value.into();
+                self.name_table[to_name_table_addr(a, mirroring)] = value.into();
             }
             0x3000..=0x3EFF => {
-                nes.ppu.name_table[to_name_table_addr(addr - 0x1000u16, &nes.mirroring)] =
-                    value.into();
+                self.name_table[to_name_table_addr(addr - 0x1000u16, mirroring)] = value.into();
             }
             0x3F00..=0x3FFF => {
-                nes.ppu.pallete_ram_idx[to_pallete_addr(a)] = value.into();
+                self.pallete_ram_idx[to_pallete_addr(a)] = value.into();
             }
             _ => {}
         }
@@ -826,11 +821,11 @@ struct Sprite {
 }
 
 impl Sprite {
-    pub fn valid(&self) -> bool {
+    fn valid(&self) -> bool {
         !(self.x == 0xFF && self.y == 0xFF && self.tile_index == 0xFF && self.attr.bits() == 0xFF)
     }
 
-    pub fn row(&self, line: u16, sprite_height: i8) -> u16 {
+    fn row(&self, line: u16, sprite_height: i8) -> u16 {
         let row = (line as u16).wrapping_sub(self.y as u16).wrapping_sub(1);
         if self.attr.contains(SpriteAttribute::FLIP_VERTICALLY) {
             (sprite_height as u16).wrapping_sub(1).wrapping_sub(row)
@@ -839,7 +834,7 @@ impl Sprite {
         }
     }
 
-    pub fn col(&self, x: u16) -> u8 {
+    fn col(&self, x: u16) -> u8 {
         let col = 7u16.wrapping_sub(x.wrapping_sub(self.x as u16));
         if self.attr.contains(SpriteAttribute::FLIP_HORIZONTALLY) {
             8u16.wrapping_sub(1).wrapping_sub(col) as u8
