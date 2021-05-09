@@ -1,9 +1,11 @@
+mod register;
 mod vram_address;
 
 use crate::interrupt::Interrupt;
 use crate::nes::Mirroring;
 use crate::prelude::*;
 
+use self::register::{Controller, Mask, Status};
 use self::vram_address::VRAMAddress;
 
 const SPRITE_COUNT: usize = 64;
@@ -16,6 +18,8 @@ const TILE_HEIGHT: Byte = Byte::new(8);
 
 const MAX_DOT: u16 = 340;
 const MAX_LINE: u16 = 261;
+
+pub use self::register::{read_register, write_register};
 
 pub struct Ppu {
     // PPUCTRL
@@ -327,7 +331,10 @@ fn render_pixel(nes: &mut Nes) {
 fn render_background_pixel(nes: &Nes) -> u16 {
     let fine_x: u8 = nes.ppu.fine_x.into();
 
-    if !nes.ppu.mask.is_enable_background(fine_x) {
+    if !nes.ppu.mask.contains(Mask::BACKGROUND)
+        || (fine_x < 8 && nes.ppu.mask.contains(Mask::BACKGROUND_LEFT))
+    {
+        // background rendering disabled
         return 0;
     }
 
@@ -341,7 +348,11 @@ fn render_background_pixel(nes: &Nes) -> u16 {
 }
 
 fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) {
-    if !nes.ppu.mask.is_enable_sprite(nes.ppu.fine_x.into()) {
+    let fine_x: u8 = nes.ppu.fine_x.into();
+
+    if !nes.ppu.mask.contains(Mask::SPRITE)
+        || (fine_x < 8 && nes.ppu.mask.contains(Mask::SPRITE_LEFT))
+    {
         return (0, Default::default());
     }
 
@@ -357,15 +368,18 @@ fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) 
         let col = sprite.col(x as u16);
         let mut tile_idx = sprite.tile_index as u16;
 
-        let base = if nes.ppu.controller.sprite_8x16_pixels() {
+        let base = if nes.ppu.controller.contains(Controller::SPRITE_SIZE) {
+            // 8x16 pixels
             tile_idx &= 0xFE;
             if 7 < row {
                 tile_idx += 1;
                 row -= 8;
             }
             tile_idx & 1
+        } else if nes.ppu.controller.contains(Controller::SPRITE_TABLE_ADDR) {
+            0x1000
         } else {
-            nes.ppu.controller.base_sprite_table_addr()
+            0x0000
         };
 
         let tile_addr = base + tile_idx * 16 + row;
@@ -390,77 +404,6 @@ fn render_sprite(nes: &mut Nes, x: i32, bg_addr: u16) -> (u16, SpriteAttribute) 
         return (pixel.into(), sprite.attr);
     }
     (0, Default::default())
-}
-
-// register access
-impl Ppu {
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242000_write
-    fn write_controller(&mut self, value: u8) {
-        self.controller = Controller::from_bits_truncate(value);
-        // t: ...BA.. ........ = d: ......BA
-        self.t = (self.t & !0b0001100_00000000) | (self.controller.name_table_select() << 10)
-    }
-
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242002_read
-    fn read_status(&mut self) -> Byte {
-        let s = self.status;
-        self.status.remove(Status::VBLANK);
-        self.write_toggle = false;
-        s.bits().into()
-    }
-
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242005_first_write_.28w_is_0.29
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242005_second_write_.28w_is_1.29
-    fn write_scroll(&mut self, position: impl Into<u8>) {
-        let p = position.into();
-        if !self.write_toggle {
-            // first write
-            // t: ....... ...HGFED = d: HGFED...
-            // x:              CBA = d: .....CBA
-            self.t = (self.t & !0b0000000_00011111) | ((p as u16 & 0b11111000) >> 3);
-            self.fine_x = Byte::from(p & 0b111);
-            self.write_toggle = true;
-        } else {
-            // second write
-            // t: CBA..HG FED..... = d: HGFEDCBA
-            self.t = (self.t & !0b1110011_11100000)
-                | ((p as u16 & 0b111) << 12)
-                | ((p as u16 & 0b11111000) << 2);
-            self.write_toggle = false
-        }
-    }
-
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242006_first_write_.28w_is_0.29
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#.242006_second_write_.28w_is_1.29
-    fn write_vram_address(&mut self, addr: impl Into<u8>) {
-        let d = addr.into();
-        if !self.write_toggle {
-            // first write
-            // t: .FEDCBA ........ = d: ..FEDCBA
-            // t: X...... ........ = 0
-            self.t = (self.t & !0b0111111_00000000) | ((d as u16 & 0b111111) << 8);
-            self.write_toggle = true
-        } else {
-            // second write
-            // t: ....... HGFEDCBA = d: HGFEDCBA
-            // v                   = t
-            self.t = (self.t & !0b0000000_11111111) | d as u16;
-            self.v = self.t;
-            self.write_toggle = false
-        }
-    }
-
-    fn incr_v(&mut self) {
-        self.v += self.controller.vram_increment()
-    }
-
-    fn sprite_size(&self) -> i8 {
-        if self.controller.contains(Controller::SPRITE_SIZE) {
-            16
-        } else {
-            8
-        }
-    }
 }
 
 impl Ppu {
@@ -505,6 +448,14 @@ impl Ppu {
         // v: IHGF.ED CBA..... = t: IHGF.ED CBA.....
         self.v = (self.v & !0b1111011_11100000) | (self.t & 0b1111011_11100000)
     }
+
+    fn sprite_size(&self) -> i8 {
+        if self.controller.contains(Controller::SPRITE_SIZE) {
+            16
+        } else {
+            8
+        }
+    }
 }
 
 impl Ppu {
@@ -521,67 +472,6 @@ impl Ppu {
         self.bg_shift.high = (self.bg_shift.high & 0xFF00) | self.bg.high;
         self.at_shift.low_latch = self.at_latch.nth(0) == 1;
         self.at_shift.high_latch = self.at_latch.nth(1) == 1;
-    }
-}
-
-pub fn read_register(addr: impl Into<u16>, nes: &mut Nes) -> Byte {
-    let result = match addr.into() {
-        0x2002u16 => {
-            let result = nes.ppu.read_status() | (nes.ppu.internal_data_bus & 0b11111);
-            if nes.scan.line == 241 && nes.scan.dot < 2 {
-                result & !0x80
-            } else {
-                result
-            }
-        }
-        0x2004u16 => {
-            // https://wiki.nesdev.com/w/index.php/PPU_sprite_evaluation
-            if nes.scan.line < 240 && 1 <= nes.scan.dot && nes.scan.dot <= 64 {
-                // during sprite evaluation
-                0xFF
-            } else {
-                nes.ppu.primary_oam[nes.ppu.oam_address]
-            }
-            .into()
-        }
-        0x2007u16 => {
-            let v: u16 = nes.ppu.v.into();
-            let result = if v <= 0x3EFFu16 {
-                let data = nes.ppu.data;
-                nes.ppu.data = nes.ppu.read(nes.ppu.v.into(), &nes.mirroring);
-                data
-            } else {
-                nes.ppu.read(nes.ppu.v.into(), &nes.mirroring)
-            };
-            nes.ppu.incr_v();
-            result
-        }
-        _ => Default::default(),
-    };
-
-    nes.ppu.internal_data_bus = result.into();
-    result
-}
-
-pub fn write_register(addr: impl Into<u16>, value: Byte, nes: &mut Nes) {
-    match addr.into() {
-        0x2000u16 => nes.ppu.write_controller(value.into()),
-        0x2001 => nes.ppu.mask = Mask::from_bits_truncate(value.into()),
-        0x2003 => {
-            let addr: u16 = value.into();
-            nes.ppu.oam_address = addr.into();
-        }
-        0x2004 => {
-            nes.ppu.primary_oam[nes.ppu.oam_address] = value.into();
-            nes.ppu.oam_address = nes.ppu.oam_address.wrapping_add(1);
-        }
-        0x2005 => nes.ppu.write_scroll(value),
-        0x2006 => nes.ppu.write_vram_address(value),
-        0x2007 => {
-            nes.ppu.write(nes.ppu.v.into(), value, &nes.mirroring);
-            nes.ppu.incr_v();
-        }
-        _ => {}
     }
 }
 
@@ -634,100 +524,6 @@ fn to_pallete_addr(base: u16) -> usize {
     // http://wiki.nesdev.com/w/index.php/PPU_palettes#Memory_Map
     let addr = base % 32;
     if addr % 4 == 0 { addr | 0x10 } else { addr }.into()
-}
-
-bitflags! {
-    #[derive(Default)]
-    struct Controller: u8 {
-        // NMI
-        const NMI = 1 << 7;
-        // PPU master/slave (0 = master, 1 = slave)
-        #[allow(dead_code)]
-        const SLAVE = 1 << 6;
-        // Sprite size
-        const SPRITE_SIZE = 1 << 5;
-        // Background pattern table address
-        const BG_TABLE_ADDR = 1 << 4;
-        // Sprite pattern table address for 8x8 sprites
-        const SPRITE_TABLE_ADDR = 1 << 3;
-        // VRAM address increment
-        const VRAM_ADDR_INCR = 1 << 2;
-    }
-}
-
-impl Controller {
-    fn name_table_select(&self) -> Word {
-        (self.bits() & 0b11).into()
-    }
-
-    fn base_sprite_table_addr(&self) -> u16 {
-        if self.contains(Self::SPRITE_TABLE_ADDR) {
-            0x1000
-        } else {
-            0x0000
-        }
-    }
-
-    fn sprite_8x16_pixels(&self) -> bool {
-        self.contains(Self::SPRITE_SIZE)
-    }
-
-    fn vram_increment(&self) -> u16 {
-        if self.contains(Self::VRAM_ADDR_INCR) {
-            32u16
-        } else {
-            1u16
-        }
-    }
-}
-
-bitflags! {
-    #[derive(Default)]
-    struct Mask: u8 {
-        // Emphasize blue
-        #[allow(dead_code)]
-        const BLUE = 1 << 7;
-        // Emphasize green
-        #[allow(dead_code)]
-        const GREEN = 1 << 6;
-        // Emphasize red
-        #[allow(dead_code)]
-        const RED = 1 << 5;
-        // Show sprite
-        const SPRITE = 1 << 4;
-        // Show background
-        const BACKGROUND = 1 << 3;
-        // Show sprite in leftmost 8 pixels
-        const SPRITE_LEFT = 1 << 2;
-        // Show background in leftmost 8 pixels
-        const BACKGROUND_LEFT = 1 << 1;
-        // Greyscale
-        #[allow(dead_code)]
-        const GREYSCALE = 1;
-
-        const RENDER_ENABLED = Self::SPRITE.bits | Self::BACKGROUND.bits;
-    }
-}
-
-impl Mask {
-    fn is_enable_background(self, x: u8) -> bool {
-        self.contains(Self::BACKGROUND) && !(x < 8 && !self.contains(Self::BACKGROUND_LEFT))
-    }
-    fn is_enable_sprite(self, x: u8) -> bool {
-        self.contains(Self::SPRITE) && !(x < 8 && !self.contains(Self::SPRITE_LEFT))
-    }
-}
-
-bitflags! {
-    #[derive(Default)]
-    struct Status: u8 {
-        // In vblank?
-        const VBLANK = 1 << 7;
-        // Sprite 0 Hit
-        const SPRITE_ZERO_HIT = 1 << 6;
-        // Sprite overflow
-        const SPRITE_OVERFLOW = 1 << 5;
-    }
 }
 
 enum Scanline {
