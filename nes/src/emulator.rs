@@ -1,4 +1,5 @@
 use crate::cpu::{self, handle_interrupt, Cpu, CpuClock, Trace};
+use crate::mapper::Cartridge;
 use crate::nes::{Nes, SystemBus};
 use crate::ppu;
 
@@ -13,6 +14,13 @@ impl Emulator {
 
     pub fn step(&mut self) {
         cpu::step::<SystemBus, SystemClock>(&mut self.nes);
+    }
+
+    pub fn insert_cartridge(&mut self, cart: Cartridge) {
+        self.nes.mapper = cart.mapper;
+        //TODO cpu reset
+        //TODO ppu reset
+        self.nes.ppu.mirroring = self.nes.mapper.mirroring();
     }
 }
 

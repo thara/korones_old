@@ -1,21 +1,21 @@
 #[derive(BinRead, Debug)]
 #[br(magic = b"NES\x1A")]
-struct INESFile {
+pub(super) struct INESFile {
     prg_rom_unit_size: u8,
     chr_rom_unit_size: u8,
-    flag6: Flag6,
+    pub(super) flag6: Flag6,
     flag7: Flag7,
     flag8: u8,
     flag9: Flag9,
     flag10: Flag10,
 
     #[br(count = prg_rom_unit_size as u16 * 0x4000u16)]
-    prg_rom: Vec<u8>,
+    pub(super) prg_rom: Vec<u8>,
     #[br(count = chr_rom_unit_size as u16 * 0x2000u16)]
-    chr_rom: Vec<u8>,
+    pub(super) chr_rom: Vec<u8>,
 
     #[br(calc = (flag7.bits() & 0b11110000) + (flag6.bits() >> 4))]
-    mapper: u8,
+    pub(super) mapper: u8,
 
     #[br(calc = if 0 < flag8 { flag8 as u16 * 0x2000u16 } else { 0x2000u16 })]
     prg_ram_size: u16,
@@ -23,12 +23,11 @@ struct INESFile {
 
 bitflags! {
     #[derive(BinRead, Default)]
-    struct Flag6: u8 {
-        const MIRRORING_HORIZONTAL = 1 << 0;
-        const MIRRORING_VERTICAL = 1 << 1;
-        const BATTERY_BACKED_PRG_RAM = 1 << 2;
-        const TRAINER_BEFORE_RPM_ROM = 1 << 3;  //TODO how to affect to INESFile.prg_rom's attribute?
-        const FULL_SCREEN_VRAM = 1 << 4;
+    pub(super) struct Flag6: u8 {
+        const MIRRORING_VERTICAL = 1 << 0;
+        const BATTERY_BACKED_PRG_RAM = 1 << 1;
+        const TRAINER_BEFORE_RPM_ROM = 1 << 2;  //TODO how to affect to INESFile.prg_rom's attribute?
+        const FULL_SCREEN_VRAM = 1 << 3;
     }
 }
 
@@ -85,7 +84,7 @@ mod tests {
     use binread::{io::Cursor, BinRead};
 
     #[test]
-    fn load_header() {
+    fn load_ines_file() {
         use std::fs::File;
         use std::io::Read;
         use std::path::Path;
