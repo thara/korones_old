@@ -97,14 +97,39 @@ impl Ppu {
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn power_on(&mut self) {
+        // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
         self.controller = Default::default();
         self.mask = Default::default();
         self.status = Default::default();
+
+        self.fine_x = 0x00.into();
+        self.v = 0x00.into();
+        self.t = 0x00.into();
         self.data = 0x00.into();
+
+        self.write_toggle = false;
+        self.frames = 0;
 
         self.name_table = [Default::default(); 0x1000];
         self.pallete_ram_idx = [Default::default(); 0x0020];
+
+        self.scan.clear();
+    }
+
+    pub fn reset(&mut self) {
+        // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
+        self.controller = Default::default();
+        self.mask = Default::default();
+        self.status = Default::default();
+
+        self.fine_x = 0x00.into();
+        self.data = 0x00.into();
+
+        self.write_toggle = false;
+        self.frames = 0;
+
+        self.scan.clear();
     }
 }
 

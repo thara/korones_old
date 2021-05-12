@@ -12,14 +12,21 @@ impl Emulator {
         Self { nes: Nes::new() }
     }
 
+    pub fn power_on(&mut self) {
+        cpu::power_on::<SystemBus>(&mut self.nes);
+        self.nes.ppu.power_on();
+    }
+
     pub fn step(&mut self) {
         cpu::step::<SystemBus, SystemClock>(&mut self.nes);
     }
 
     pub fn insert_cartridge(&mut self, cart: Cartridge) {
         self.nes.mapper = cart.mapper;
-        //TODO cpu reset
-        //TODO ppu reset
+
+        cpu::reset::<SystemBus>(&mut self.nes);
+
+        self.nes.ppu.reset();
         self.nes.ppu.mirroring = self.nes.mapper.mirroring();
     }
 }

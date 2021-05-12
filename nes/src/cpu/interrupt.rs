@@ -3,7 +3,7 @@ use super::*;
 use crate::bus::ReadWord;
 use crate::prelude::*;
 
-pub(super) fn reset<M: Bus>(nes: &mut Nes) {
+pub fn reset<M: Bus>(nes: &mut Nes) {
     nes.cpu_cycles += 5;
     nes.cpu.pc = M::read_word(0xFFFCu16.into(), nes);
     nes.cpu.p.insert(Status::I);

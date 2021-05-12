@@ -5,6 +5,7 @@ mod trace;
 use crate::interrupt::Interrupt;
 use crate::prelude::*;
 
+pub use self::interrupt::reset;
 pub use trace::Trace;
 
 #[derive(Debug, Default)]
@@ -29,6 +30,28 @@ impl Cpu {
 
     pub fn interrupted(&self) -> bool {
         self.p.contains(Status::I)
+    }
+}
+
+pub fn power_on<M: Bus>(nes: &mut Nes) {
+    // https://wiki.nesdev.com/w/index.php/CPU_power_up_state
+
+    // IRQ disabled
+    nes.cpu.p = Status::from_bits_truncate(0x34);
+    nes.cpu.a = 0x00.into();
+    nes.cpu.x = 0x00.into();
+    nes.cpu.y = 0x00.into();
+    nes.cpu.s = 0xFD.into();
+    // frame irq disabled
+    M::write(0x4017.into(), 0x00.into(), nes);
+    // all channels disabled
+    M::write(0x4015.into(), 0x00.into(), nes);
+
+    for a in 0x4000..=0x400F {
+        M::write(a.into(), 0x00.into(), nes);
+    }
+    for a in 0x4010..=0x4013 {
+        M::write(a.into(), 0x00.into(), nes);
     }
 }
 
