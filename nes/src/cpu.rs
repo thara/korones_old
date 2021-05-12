@@ -243,7 +243,6 @@ fn page_crossed(value: impl Into<i64>, from: impl Into<i64>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
 
     enum ClockMock {}
     impl CpuClock for ClockMock {
@@ -273,8 +272,6 @@ mod tests {
         nes.wram[0x1053] = 0x81;
         nes.wram[0x1054] = 0x90;
 
-        let mut cycles = RefCell::new(0);
-
         nes.cpu.pc = 0x1052u16.into();
 
         let instruction = fetch::<BusMock>(&mut nes);
@@ -282,8 +279,6 @@ mod tests {
 
         let instruction = fetch::<BusMock>(&mut nes);
         assert_eq!(instruction, 0x81.into());
-
-        assert_eq!(*(cycles.get_mut()), 2u128);
     }
 
     #[test]
