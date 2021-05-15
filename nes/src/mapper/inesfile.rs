@@ -9,7 +9,7 @@ pub(super) struct INESFile {
     flag9: Flag9,
     flag10: Flag10,
 
-    #[br(count = prg_rom_unit_size as u16 * 0x4000u16)]
+    #[br(pad_before = 5, count = prg_rom_unit_size as u16 * 0x4000u16)]
     pub(super) prg_rom: Vec<u8>,
     #[br(count = chr_rom_unit_size as u16 * 0x2000u16)]
     pub(super) chr_rom: Vec<u8>,
