@@ -16,8 +16,6 @@ pub struct Nes {
     // PPU
     pub ppu: Ppu,
 
-    pub cycles: u128,
-
     pub mapper: Box<dyn Mapper>,
 
     pub controller_1: Box<dyn Controller>,
@@ -32,7 +30,6 @@ impl Nes {
             cpu_cycles: 0,
             interrupt: Default::default(),
             ppu: Ppu::new(),
-            cycles: 0,
             mapper: Box::new(MapperDefault {}),
             controller_1: Box::new(controller::Empty {}),
             controller_2: Box::new(controller::Empty {}),

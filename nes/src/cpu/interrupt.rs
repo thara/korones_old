@@ -12,7 +12,7 @@ pub fn reset<M: Bus>(nes: &mut Nes) {
 
 // NMI
 pub(super) fn non_markable_interrupt<M: Bus>(nes: &mut Nes) {
-    nes.cycles += 2;
+    nes.cpu_cycles += 2;
     push_stack_word::<M>(nes.cpu.pc, nes);
     // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
     // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
@@ -23,7 +23,7 @@ pub(super) fn non_markable_interrupt<M: Bus>(nes: &mut Nes) {
 
 // IRQ
 pub(super) fn interrupt_request<M: Bus>(nes: &mut Nes) {
-    nes.cycles += 2;
+    nes.cpu_cycles += 2;
     push_stack_word::<M>(nes.cpu.pc, nes);
     // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
     // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
@@ -34,7 +34,7 @@ pub(super) fn interrupt_request<M: Bus>(nes: &mut Nes) {
 
 // BRK
 pub(super) fn break_interrupt<M: Bus>(nes: &mut Nes) {
-    nes.cycles += 2;
+    nes.cpu_cycles += 2;
     nes.cpu.pc += 1;
     push_stack_word::<M>(nes.cpu.pc, nes);
     // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
