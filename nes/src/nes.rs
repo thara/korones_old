@@ -1,3 +1,4 @@
+use crate::controller::{self, Controller};
 use crate::cpu::Cpu;
 use crate::interrupt::Interrupt;
 use crate::mapper::{Mapper, MapperDefault};
@@ -18,6 +19,9 @@ pub struct Nes {
     pub cycles: u128,
 
     pub mapper: Box<dyn Mapper>,
+
+    pub controller_1: Box<dyn Controller>,
+    pub controller_2: Box<dyn Controller>,
 }
 
 impl Nes {
@@ -30,6 +34,8 @@ impl Nes {
             ppu: Ppu::new(),
             cycles: 0,
             mapper: Box::new(MapperDefault {}),
+            controller_1: Box::new(controller::Empty {}),
+            controller_2: Box::new(controller::Empty {}),
         }
     }
 }
@@ -46,10 +52,8 @@ impl Bus for SystemBus {
                 //TODO APU
                 0u8.into()
             }
-            0x4016 | 0x4017 => {
-                //TODO controllers
-                0u8.into()
-            }
+            0x4016 => nes.controller_1.read(),
+            0x4017 => nes.controller_2.read(),
             0x4020..=0xFFFF => nes.mapper.read(addr),
             _ => 0u8.into(),
         }
@@ -63,11 +67,10 @@ impl Bus for SystemBus {
             0x4000..=0x4013 | 0x4015 => {
                 //TODO APU
             }
-            0x4016 => {
-                //TODO controller 1
-            }
+            0x4016 => nes.controller_1.write(value),
             0x4017 => {
-                //TODO controller 2 & APU
+                nes.controller_2.write(value);
+                //TODO APU
             }
             0x4020..=0xFFFF => nes.mapper.write(addr, value),
             _ => {

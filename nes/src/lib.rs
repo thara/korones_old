@@ -11,6 +11,7 @@ extern crate anyhow;
 extern crate thiserror;
 
 mod bus;
+mod controller;
 mod cpu;
 mod data_types;
 mod emulator;
@@ -22,3 +23,5 @@ mod prelude;
 
 pub use emulator::Emulator;
 pub use mapper::Cartridge;
+
+pub use controller::StandardController;

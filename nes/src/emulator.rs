@@ -1,4 +1,5 @@
-use crate::cpu::{self, handle_interrupt, Cpu, CpuClock, Trace};
+use crate::controller::Controller;
+use crate::cpu::{self, handle_interrupt, CpuClock, Trace};
 use crate::mapper::Cartridge;
 use crate::nes::{Nes, SystemBus};
 use crate::ppu;
@@ -28,6 +29,23 @@ impl Emulator {
 
         self.nes.ppu.reset();
         self.nes.ppu.mirroring = self.nes.mapper.mirroring();
+    }
+
+    pub fn join_controller(
+        &mut self,
+        controller_1: Box<dyn Controller>,
+        controller_2: Box<dyn Controller>,
+    ) {
+        self.nes.controller_1 = controller_1;
+        self.nes.controller_2 = controller_2;
+    }
+
+    pub fn update_controller_1(&mut self, state: u8) {
+        self.nes.controller_1.update(state.into());
+    }
+
+    pub fn update_controller_2(&mut self, state: u8) {
+        self.nes.controller_2.update(state.into());
     }
 }
 
@@ -73,6 +91,7 @@ impl CpuClock for SystemClock {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::controller::StandardController;
     use std::fs::File;
     use std::io::{self, BufRead};
     use std::path::Path;
@@ -89,6 +108,11 @@ mod test {
         let cart = Cartridge::load_rom_file(rom_path).unwrap();
 
         let mut emu = Emulator::new();
+
+        let controller_1 = Box::new(StandardController::default());
+        let controller_2 = Box::new(StandardController::default());
+        emu.join_controller(controller_1, controller_2);
+
         emu.insert_cartridge(cart);
         emu.power_on();
 
