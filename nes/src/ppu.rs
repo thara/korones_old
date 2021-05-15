@@ -209,7 +209,7 @@ fn process_sprites(nes: &mut Nes) {
                 SPRITE_LIMIT <= n && nes.ppu.mask.contains(Mask::RENDER_ENABLED),
             );
         }
-        321 => {
+        257..=320 => {
             // fetch sprites
             let i = (nes.ppu.scan.dot.wrapping_sub(257)) / 8;
             let n = i.wrapping_mul(4) as usize;
@@ -338,7 +338,7 @@ fn process_background(nes: &mut Nes, scanline: Scanline) {
 fn render_pixel(nes: &mut Nes) {
     let bg_addr = render_background_pixel(nes);
 
-    let x = nes.ppu.scan.dot - 2;
+    let x = nes.ppu.scan.dot.wrapping_sub(2);
     let (sprite_addr, attr) = render_sprite(nes, x as i32, bg_addr);
 
     let addr = match (0 < bg_addr, 0 < sprite_addr) {
