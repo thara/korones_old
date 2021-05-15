@@ -4,6 +4,7 @@ mod trace;
 
 use crate::interrupt::Interrupt;
 use crate::prelude::*;
+use std::fmt;
 
 pub use self::interrupt::reset;
 pub use trace::Trace;
@@ -30,6 +31,21 @@ impl Cpu {
 
     pub fn interrupted(&self) -> bool {
         self.p.contains(Status::I)
+    }
+}
+
+impl fmt::Display for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "(A:{} X:{} Y:{} S:{} P:{:x} PC:{})",
+            self.a,
+            self.x,
+            self.y,
+            self.s,
+            self.p.bits(),
+            self.pc,
+        )
     }
 }
 

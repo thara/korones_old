@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt;
 use std::ops;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -15,6 +16,12 @@ impl Byte {
 
     pub fn nth(&self, n: u8) -> u8 {
         self.0.wrapping_shr(n as u32) & 1
+    }
+}
+
+impl fmt::Display for Byte {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02x}", self.0)
     }
 }
 
@@ -242,6 +249,12 @@ impl ops::ShrAssign<u8> for Byte {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct Word(u16);
+
+impl fmt::Display for Word {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
 
 impl From<u8> for Word {
     fn from(value: u8) -> Self {
