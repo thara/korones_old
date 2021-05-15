@@ -35,8 +35,13 @@ impl Emulator {
 impl Emulator {
     pub fn nestest<F: FnMut(&Trace)>(&mut self, mut f: F) {
         // initial state
+        self.nes.cpu.init_nestest();
         self.nes.cpu_cycles = 7;
-        self.nes.cpu = Cpu::nestest();
+        for _ in 0..7 {
+            ppu::step(&mut self.nes);
+            ppu::step(&mut self.nes);
+            ppu::step(&mut self.nes);
+        }
 
         loop {
             handle_interrupt::<SystemBus, SystemClock>(&mut self.nes);
@@ -60,5 +65,44 @@ impl CpuClock for SystemClock {
         nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
 
         ppu::step(nes);
+        ppu::step(nes);
+        ppu::step(nes);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::fs::File;
+    use std::io::{self, BufRead};
+    use std::path::Path;
+
+    #[test]
+    fn nestest() {
+        let nes_dir = env!("CARGO_MANIFEST_DIR");
+
+        let rom_path = Path::new(nes_dir)
+            .parent()
+            .unwrap()
+            .join("roms/nes-test-roms/other/nestest.nes");
+
+        let cart = Cartridge::load_rom_file(rom_path).unwrap();
+
+        let mut emu = Emulator::new();
+        emu.insert_cartridge(cart);
+        emu.power_on();
+
+        let log_path = Path::new(nes_dir)
+            .parent()
+            .unwrap()
+            .join("roms/nestest-cpu.log");
+
+        let f = File::open(log_path).unwrap();
+        let mut lines = io::BufReader::new(f).lines();
+
+        emu.nestest(|trace| {
+            let line = lines.next().unwrap().unwrap();
+            assert_eq!(format!("{}", trace), line);
+        });
     }
 }

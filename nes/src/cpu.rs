@@ -20,13 +20,10 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn nestest() -> Self {
-        Self {
-            pc: 0xC000u16.into(),
-            // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
-            p: Status::from_bits_truncate(0x24),
-            ..Default::default()
-        }
+    pub fn init_nestest(&mut self) {
+        self.pc = 0xC000u16.into();
+        // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
+        self.p = Status::from_bits_truncate(0x24);
     }
 
     pub fn interrupted(&self) -> bool {
