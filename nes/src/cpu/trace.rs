@@ -38,7 +38,7 @@ impl Trace {
             y: nes.cpu.y,
             sp: nes.cpu.s,
             p: nes.cpu.p.bits().into(),
-            cycle: nes.cpu_cycles,
+            cycle: nes.cpu.cycles,
             opcode,
             assembly_code,
         }

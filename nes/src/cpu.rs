@@ -9,7 +9,7 @@ use std::fmt;
 pub use self::interrupt::reset;
 pub use trace::Trace;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Cpu {
     a: Byte,
     x: Byte,
@@ -17,9 +17,25 @@ pub struct Cpu {
     s: Byte,
     p: Status,
     pc: Word,
+
+    pub wram: [u8; 0x2000],
+    pub cycles: u128,
 }
 
 impl Cpu {
+    pub fn new() -> Self {
+        Self {
+            a: Default::default(),
+            x: Default::default(),
+            y: Default::default(),
+            s: Default::default(),
+            p: Default::default(),
+            pc: Default::default(),
+            wram: [0; 0x2000],
+            cycles: 0,
+        }
+    }
+
     pub fn init_nestest(&mut self) {
         self.pc = 0xC000u16.into();
         // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
@@ -210,7 +226,7 @@ impl<M: Bus, C: CpuClock> Bus for CpuBus<M, C> {
             }
             // dummy cycles
             C::tick(nes);
-            if nes.cpu_cycles % 2 == 1 {
+            if nes.cpu.cycles % 2 == 1 {
                 C::tick(nes);
             }
             return;
@@ -260,7 +276,7 @@ mod tests {
     enum ClockMock {}
     impl CpuClock for ClockMock {
         fn tick(nes: &mut Nes) {
-            nes.cpu_cycles += 1;
+            nes.cpu.cycles += 1;
         }
     }
 
@@ -268,11 +284,11 @@ mod tests {
     impl Bus for BusMock {
         fn read(addr: Word, nes: &mut Nes) -> Byte {
             let a: u16 = addr.into();
-            nes.wram[a as usize].into()
+            nes.cpu.wram[a as usize].into()
         }
         fn write(addr: Word, value: Byte, nes: &mut Nes) {
             let a: u16 = addr.into();
-            nes.wram[a as usize] = value.into();
+            nes.cpu.wram[a as usize] = value.into();
         }
     }
 
@@ -280,10 +296,10 @@ mod tests {
     fn test_fetch() {
         let mut nes = Nes::new();
 
-        nes.wram[0x1051] = 0x90;
-        nes.wram[0x1052] = 0x3F;
-        nes.wram[0x1053] = 0x81;
-        nes.wram[0x1054] = 0x90;
+        nes.cpu.wram[0x1051] = 0x90;
+        nes.cpu.wram[0x1052] = 0x3F;
+        nes.cpu.wram[0x1053] = 0x81;
+        nes.cpu.wram[0x1054] = 0x90;
 
         nes.cpu.pc = 0x1052u16.into();
 

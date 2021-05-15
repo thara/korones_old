@@ -6,15 +6,10 @@ use crate::ppu::{self, Ppu};
 use crate::prelude::*;
 
 pub struct Nes {
-    // CPU
     pub cpu: Cpu,
-    pub wram: [u8; 0x2000],
-    pub cpu_cycles: u128,
+    pub ppu: Ppu,
 
     pub interrupt: Interrupt,
-
-    // PPU
-    pub ppu: Ppu,
 
     pub mapper: Box<dyn Mapper>,
 
@@ -25,9 +20,7 @@ pub struct Nes {
 impl Nes {
     pub fn new() -> Self {
         Self {
-            cpu: Default::default(),
-            wram: [0; 0x2000],
-            cpu_cycles: 0,
+            cpu: Cpu::new(),
             interrupt: Default::default(),
             ppu: Ppu::new(),
             mapper: Box::new(MapperDefault {}),
@@ -43,7 +36,7 @@ impl Bus for SystemBus {
     fn read(addr: Word, nes: &mut Nes) -> Byte {
         let a: u16 = addr.into();
         match a {
-            0x0000..=0x1FFF => nes.wram[a as usize].into(),
+            0x0000..=0x1FFF => nes.cpu.wram[a as usize].into(),
             0x2000..=0x3FFF => ppu::read_register(to_ppu_addr(a), nes),
             0x4000..=0x4013 | 0x4015 => {
                 //TODO APU
@@ -59,7 +52,7 @@ impl Bus for SystemBus {
     fn write(addr: Word, value: Byte, nes: &mut Nes) {
         let a: u16 = addr.into();
         match a {
-            0x0000..=0x1FFF => nes.wram[a as usize] = value.into(),
+            0x0000..=0x1FFF => nes.cpu.wram[a as usize] = value.into(),
             0x2000..=0x3FFF => ppu::write_register(addr, value, nes),
             0x4000..=0x4013 | 0x4015 => {
                 //TODO APU

@@ -54,7 +54,7 @@ impl Emulator {
     pub fn nestest<F: FnMut(&Trace)>(&mut self, mut f: F) {
         // initial state
         self.nes.cpu.init_nestest();
-        self.nes.cpu_cycles = 7;
+        self.nes.cpu.cycles = 7;
         for _ in 0..7 {
             ppu::step(&mut self.nes);
             ppu::step(&mut self.nes);
@@ -69,7 +69,7 @@ impl Emulator {
 
             cpu::step::<SystemBus, SystemClock>(&mut self.nes);
 
-            if 26554 < self.nes.cpu_cycles {
+            if 26554 < self.nes.cpu.cycles {
                 break;
             }
         }
@@ -80,7 +80,7 @@ pub struct SystemClock {}
 
 impl CpuClock for SystemClock {
     fn tick(nes: &mut Nes) {
-        nes.cpu_cycles = nes.cpu_cycles.wrapping_add(1);
+        nes.cpu.cycles = nes.cpu.cycles.wrapping_add(1);
 
         ppu::step(nes);
         ppu::step(nes);
