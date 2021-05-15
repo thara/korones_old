@@ -26,11 +26,10 @@ impl<T> ReadOnIndirect for T
 where
     T: Bus,
 {
-    fn read_on_indirect(operand: Word, from: &mut Nes) -> Word {
-        let low = Word::from(Self::read(operand, from));
+    fn read_on_indirect(addr: Word, nes: &mut Nes) -> Word {
+        let low = Self::read(addr, nes);
         // Reproduce 6502 bug; http://nesdev.com/6502bugs.txt
-        let addr = operand & 0xFF00 | ((operand + 1) & 0x00FF);
-        let high = Word::from(Self::read(addr, from)) << 8;
-        low | high
+        let high = Self::read(addr & 0xFF00 | ((addr + 1) & 0x00FF), nes);
+        Word::from(low) | (Word::from(high) << 8)
     }
 }
