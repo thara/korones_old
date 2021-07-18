@@ -10,6 +10,7 @@ extern crate assert_matches;
 extern crate anyhow;
 extern crate thiserror;
 
+mod apu;
 mod bus;
 mod controller;
 mod cpu;

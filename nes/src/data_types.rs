@@ -14,6 +14,10 @@ impl Byte {
         self.0
     }
 
+    pub fn u16(&self) -> u16 {
+        self.0 as u16
+    }
+
     pub fn nth(&self, n: u8) -> u8 {
         self.0.wrapping_shr(n as u32) & 1
     }
@@ -38,6 +42,12 @@ impl From<Byte> for u8 {
 }
 
 impl From<Byte> for u16 {
+    fn from(value: Byte) -> Self {
+        value.0 as Self
+    }
+}
+
+impl From<Byte> for usize {
     fn from(value: Byte) -> Self {
         value.0 as Self
     }

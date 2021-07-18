@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::controller::{self, Controller};
 use crate::cpu::Cpu;
 use crate::interrupt::Interrupt;
@@ -8,6 +9,7 @@ use crate::prelude::*;
 pub struct Nes {
     pub cpu: Cpu,
     pub ppu: Ppu,
+    pub apu: Apu,
 
     pub interrupt: Interrupt,
 
@@ -23,6 +25,7 @@ impl Nes {
             cpu: Cpu::new(),
             interrupt: Default::default(),
             ppu: Ppu::new(),
+            apu: Apu::new(1_789_772 / 44100, 7458),
             mapper: Box::new(MapperDefault {}),
             controller_1: Box::new(controller::Empty {}),
             controller_2: Box::new(controller::Empty {}),
@@ -38,10 +41,7 @@ impl Bus for SystemBus {
         match a {
             0x0000..=0x1FFF => nes.cpu.wram[a as usize].into(),
             0x2000..=0x3FFF => ppu::read_register(to_ppu_addr(a), nes),
-            0x4000..=0x4013 | 0x4015 => {
-                //TODO APU
-                0u8.into()
-            }
+            0x4000..=0x4013 | 0x4015 => nes.apu.read_status(),
             0x4016 => nes.controller_1.read(),
             0x4017 => nes.controller_2.read(),
             0x4020..=0xFFFF => nes.mapper.read(addr),
@@ -54,13 +54,11 @@ impl Bus for SystemBus {
         match a {
             0x0000..=0x1FFF => nes.cpu.wram[a as usize] = value.into(),
             0x2000..=0x3FFF => ppu::write_register(addr, value, nes),
-            0x4000..=0x4013 | 0x4015 => {
-                //TODO APU
-            }
+            0x4000..=0x4013 | 0x4015 => nes.apu.write(addr, value),
             0x4016 => nes.controller_1.write(value),
             0x4017 => {
                 nes.controller_2.write(value);
-                //TODO APU
+                nes.apu.write(addr, value);
             }
             0x4020..=0xFFFF => nes.mapper.write(addr, value),
             _ => {
