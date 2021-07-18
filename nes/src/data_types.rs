@@ -233,13 +233,13 @@ impl ops::Shl<u8> for Byte {
     type Output = Self;
 
     fn shl(self, rhs: u8) -> Self::Output {
-        Self(self.0 << rhs)
+        Self(self.0.wrapping_shl(rhs as u32))
     }
 }
 
 impl ops::ShlAssign<u8> for Byte {
     fn shl_assign(&mut self, rhs: u8) {
-        *self = Self(self.0 << rhs)
+        *self = Self(self.0.wrapping_shl(rhs as u32))
     }
 }
 
@@ -247,13 +247,13 @@ impl ops::Shr<u8> for Byte {
     type Output = Self;
 
     fn shr(self, rhs: u8) -> Self::Output {
-        Self(self.0 >> rhs)
+        Self(self.0.wrapping_shr(rhs as u32))
     }
 }
 
 impl ops::ShrAssign<u8> for Byte {
     fn shr_assign(&mut self, rhs: u8) {
-        *self = Self(self.0 >> rhs)
+        *self = Self(self.0.wrapping_shr(rhs as u32))
     }
 }
 
