@@ -1,3 +1,4 @@
+use crate::apu;
 use crate::controller::Controller;
 use crate::cpu::{self, handle_interrupt, CpuClock, Trace};
 use crate::mapper::Cartridge;
@@ -87,6 +88,11 @@ impl CpuClock for SystemClock {
         ppu::step(nes);
         ppu::step(nes);
         ppu::step(nes);
+
+        let cpu_stall = apu::step::<SystemBus>(nes);
+        if cpu_stall {
+            nes.cpu.cycles = nes.cpu.cycles.wrapping_add(4);
+        }
     }
 }
 
