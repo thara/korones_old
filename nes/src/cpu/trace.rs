@@ -95,36 +95,36 @@ fn to_assembly_code<M: Bus>(operation: Byte, opcode: Instruction, nes: &mut Nes)
             AddressingMode::ZeroPage => format!(
                 "${:02X} = {:02X}",
                 cpu_operand_1::<M>(nes),
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::ZeroPageX => format!(
                 "${:02X},X @ {:02X} = {:02X}",
                 cpu_operand_1::<M>(nes),
                 cpu_operand_1::<M>(nes) + nes.cpu.x,
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::ZeroPageY => format!(
                 "${:02X},Y @ {:02X} = {:02X}",
                 cpu_operand_1::<M>(nes),
                 cpu_operand_1::<M>(nes) + nes.cpu.y,
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::Absolute => format!(
                 "${:04X} = {:02X}",
                 cpu_operand_16::<M>(nes),
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::AbsoluteX { .. } => format!(
                 "${:04X},X @ {:04X} = {:02X}",
                 cpu_operand_16::<M>(nes),
                 cpu_operand_16::<M>(nes) + nes.cpu.x,
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::AbsoluteY { .. } => format!(
                 "${:04X},Y @ {:04X} = {:02X}",
                 cpu_operand_16::<M>(nes),
                 cpu_operand_16::<M>(nes) + nes.cpu.y,
-                M::read(decode_address::<M>(addressing_mode, nes), nes)
+                read::<M>(addressing_mode, nes)
             ),
             AddressingMode::Relative => {
                 let pc = <Word as Into<i16>>::into(nes.cpu.pc);
@@ -160,6 +160,17 @@ fn to_assembly_code<M: Bus>(operation: Byte, opcode: Instruction, nes: &mut Nes)
         },
     };
     format!("{}{} {:<28}", prefix, name, operand)
+}
+
+fn read<M: Bus>(addressing_mode: AddressingMode, nes: &mut Nes) -> Byte {
+    let addr = decode_address::<M>(addressing_mode, nes);
+    let addr: u16 = addr.into();
+    match addr {
+        // APU status always returns 0xFF
+        // http://archive.nes.science/nesdev-forums/f3/t17748.xhtml
+        0x4004..=0x4007 | 0x4015 => 0xFF.into(),
+        _ => M::read(addr.into(), nes),
+    }
 }
 
 fn decode_address<M: Bus>(addressing_mode: AddressingMode, nes: &mut Nes) -> Word {

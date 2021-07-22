@@ -30,8 +30,6 @@ impl Emulator {
 
         self.nes.ppu.reset();
         self.nes.ppu.mirroring = self.nes.mapper.mirroring();
-
-        self.nes.apu.reset();
     }
 
     pub fn join_controller(

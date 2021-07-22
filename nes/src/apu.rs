@@ -32,17 +32,6 @@ impl Apu {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.write(0x4017u16, 0.into()); // frame irq enabled
-        self.write(0x4015u16, 0.into()); // all channels disabled
-        for addr in 0x4000u16..=0x400Fu16 {
-            self.write(addr, 0.into());
-        }
-        for addr in 0x4010u16..=0x4013u16 {
-            self.write(addr, 0.into());
-        }
-    }
-
     pub fn read_status(&mut self) -> Byte {
         let mut v: u8 = 0;
         if self.dmc.interrupted {
