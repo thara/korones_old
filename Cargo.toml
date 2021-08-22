@@ -1,4 +1,14 @@
-[workspace]
-members = [
-    "nes",
-]
+[package]
+name = "nes"
+version = "0.1.0"
+authors = ["Tomochika Hara <rust@thara.dev>"]
+edition = "2018"
+
+[dependencies]
+bitflags = "1.2"
+binread = "2.1.1"
+anyhow = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+assert_matches = "1.5.0"
