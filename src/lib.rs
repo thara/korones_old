@@ -15,5 +15,6 @@ mod data_unit;
 mod bus;
 mod cpu;
 mod nes;
+pub mod rom;
 
 mod emulator;
