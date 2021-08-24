@@ -1,35 +1,17 @@
-use crate::prelude::*;
+use crate::data_unit::*;
 
 pub trait Bus {
-    fn read(addr: Word, from: &mut Nes) -> Byte;
-    fn write(addr: Word, value: Byte, to: &mut Nes);
-}
+    fn read(&mut self, addr: impl Into<Word>) -> Byte;
+    fn write(&mut self, addr: impl Into<Word>, value: impl Into<Byte>);
 
-pub trait ReadWord: Bus {
-    fn read_word(addr: Word, from: &mut Nes) -> Word;
-}
-
-impl<T> ReadWord for T
-where
-    T: Bus,
-{
-    fn read_word(addr: Word, from: &mut Nes) -> Word {
-        Word::from(Self::read(addr, from)) | (Word::from(Self::read(addr + 1, from)) << 8)
+    fn read_word(&mut self, addr: Word) -> Word {
+        Word::from(self.read(addr)) | (Word::from(self.read(addr + 1)) << 8)
     }
-}
 
-pub trait ReadOnIndirect: Bus {
-    fn read_on_indirect(operand: Word, from: &mut Nes) -> Word;
-}
-
-impl<T> ReadOnIndirect for T
-where
-    T: Bus,
-{
-    fn read_on_indirect(addr: Word, nes: &mut Nes) -> Word {
-        let low = Self::read(addr, nes);
+    fn read_on_indirect(&mut self, addr: Word) -> Word {
+        let low = self.read(addr);
         // Reproduce 6502 bug; http://nesdev.com/6502bugs.txt
-        let high = Self::read(addr & 0xFF00 | ((addr + 1) & 0x00FF), nes);
+        let high = self.read(addr & 0xFF00 | ((addr + 1) & 0x00FF));
         Word::from(low) | (Word::from(high) << 8)
     }
 }
