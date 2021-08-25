@@ -1,4 +1,4 @@
-use crate::cpu::*;
+use crate::cpu;
 use crate::nes;
 
 pub struct Emulator {
@@ -7,6 +7,6 @@ pub struct Emulator {
 
 impl Emulator {
     pub fn step(&mut self) {
-        self.nes.cpu = self.nes.step(self.nes.cpu.clone());
+        cpu::step(&mut self.nes);
     }
 }

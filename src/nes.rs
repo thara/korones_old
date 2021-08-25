@@ -1,21 +1,25 @@
-use crate::bus::*;
 use crate::cpu::*;
 use crate::data_unit::*;
+use crate::interrupt::*;
 
 pub struct Nes {
-    pub cpu: Cpu,
-    pub wram: [u8; 0x2000],
+    pub(crate) cpu: Cpu,
+    pub(crate) interrupt: Interrupt,
+
+    wram: [u8; 0x2000],
 }
 
-impl CpuTick for Nes {
-    fn cpu_tick(&mut self) {
-        self.cpu.cycles += 1;
-        //PPU, APU step
+impl Default for Nes {
+    fn default() -> Self {
+        Nes {
+            cpu: Cpu::default(),
+            wram: [0; 0x2000],
+        }
     }
 }
 
-impl Bus for Nes {
-    fn read(&mut self, addr: impl Into<Word>) -> Byte {
+impl Nes {
+    pub(crate) fn read_bus(&mut self, addr: impl Into<Word>) -> Byte {
         let w = addr.into();
         let a: u16 = w.into();
         match a {
@@ -29,7 +33,7 @@ impl Bus for Nes {
         }
     }
 
-    fn write(&mut self, addr: impl Into<Word>, value: impl Into<Byte>) {
+    pub(crate) fn write_bus(&mut self, addr: impl Into<Word>, value: impl Into<Byte>) {
         let w = addr.into();
         let a: u16 = w.into();
         let v = value.into();

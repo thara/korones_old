@@ -1,10 +1,6 @@
-mod instruction_set;
-mod interrupt;
-
 use crate::bus::*;
 use crate::data_unit::*;
-
-use instruction_set::InstructionSet;
+use crate::nes::*;
 
 #[derive(Debug, Default, Clone)]
 pub struct Cpu {
@@ -15,7 +11,7 @@ pub struct Cpu {
     p: Status,
     pc: Word,
 
-    pub cycles: u128,
+    pub(crate) cycles: u128,
 }
 
 bitflags! {
@@ -41,116 +37,180 @@ bitflags! {
     }
 }
 
-pub trait CpuStep: Bus {
-    fn step(&mut self, cpu: Cpu) -> Cpu {
-        let mut cpu = cpu;
+pub fn step(nes: &mut Nes) {
+    // fetch
+    let opcode = nes.read(nes.cpu.pc);
+    nes.cpu.pc += 1;
 
-        let opcode = self.fetch(&mut cpu);
-        let instruction = decode(opcode);
-        self.execute(&mut cpu, instruction);
-        return cpu;
+    let instruction = decode(opcode);
+    let (_, addressing_mode) = instruction;
+
+    // get operand
+    let operand = match addressing_mode {
+        AddressingMode::Implicit => Word::from(0x00u16),
+        AddressingMode::Accumulator => nes.cpu.a.into(),
+        AddressingMode::Immediate => {
+            let operand = nes.cpu.pc;
+            nes.cpu.pc += 1;
+            operand
+        }
+        AddressingMode::ZeroPage => {
+            let operand = Word::from(nes.read(nes.cpu.pc)) & 0xFF;
+            nes.cpu.pc += 1;
+            operand
+        }
+        AddressingMode::ZeroPageX => {
+            let operand = (Word::from(nes.read(nes.cpu.pc)) + Word::from(nes.cpu.x)) & 0xFF;
+            nes.cpu.pc += 1;
+            nes.cpu.cycles += 1;
+            operand
+        }
+        AddressingMode::ZeroPageY => {
+            let operand = (Word::from(nes.read(nes.cpu.pc)) + Word::from(nes.cpu.y)) & 0xFF;
+            nes.cpu.pc += 1;
+            nes.cpu.cycles += 1;
+            operand
+        }
+        AddressingMode::Absolute => {
+            let operand = nes.read_word(nes.cpu.pc);
+            nes.cpu.pc += 2;
+            operand
+        }
+        AddressingMode::AbsoluteX { penalty } => {
+            let data = nes.read_word(nes.cpu.pc);
+            let operand = data + Word::from(nes.cpu.x);
+            nes.cpu.pc += 2;
+            if penalty {
+                if page_crossed_u16(nes.cpu.x, data) {
+                    nes.cpu.cycles += 1;
+                }
+            } else {
+                nes.cpu.cycles += 1;
+            }
+            operand
+        }
+        AddressingMode::AbsoluteY { penalty } => {
+            let data = nes.read_word(nes.cpu.pc);
+            let operand = data + Word::from(nes.cpu.y);
+            nes.cpu.pc += 2;
+            if penalty {
+                if page_crossed_u16(nes.cpu.y, data) {
+                    nes.cpu.cycles += 1;
+                }
+            } else {
+                nes.cpu.cycles += 1;
+            }
+            operand
+        }
+        AddressingMode::Relative => {
+            let operand: Word = nes.read(nes.cpu.pc).into();
+            nes.cpu.pc += 1;
+            operand
+        }
+        AddressingMode::Indirect => {
+            let data = nes.read_word(nes.cpu.pc);
+            let operand = nes.read_on_indirect(data);
+            nes.cpu.pc += 2;
+            operand
+        }
+        AddressingMode::IndexedIndirect => {
+            let data = nes.read(nes.cpu.pc);
+            let operand = nes.read_on_indirect(Word::from(data + nes.cpu.x) & 0xFF);
+            nes.cpu.pc += 1;
+            nes.cpu.cycles += 1;
+            operand
+        }
+        AddressingMode::IndirectIndexed => {
+            let y: Word = nes.cpu.y.into();
+            let data: Word = nes.read(nes.cpu.pc).into();
+            let operand = nes.read_on_indirect(data) + y;
+            nes.cpu.pc += 1;
+            if page_crossed_u16(y, operand - y) {
+                nes.cpu.cycles += 1;
+            }
+            operand
+        }
+    };
+
+    // execute
+    match instruction {
+        (Mnemonic::LDA, _) => nes.lda(operand),
+        (Mnemonic::LDX, _) => nes.ldx(operand),
+        (Mnemonic::LDY, _) => nes.ldy(operand),
+        (Mnemonic::STA, AddressingMode::IndirectIndexed) => {
+            nes.sta(operand);
+            nes.cpu.cycles += 1;
+        }
+        (Mnemonic::STA, _) => nes.sta(operand),
+        (Mnemonic::STX, _) => nes.stx(operand),
+        (Mnemonic::STY, _) => nes.sty(operand),
+        (Mnemonic::TAX, _) => nes.tax(operand),
+        (Mnemonic::TSX, _) => nes.tsx(operand),
+        (Mnemonic::TAY, _) => nes.tay(operand),
+        (Mnemonic::TXA, _) => nes.txa(operand),
+        (Mnemonic::TXS, _) => nes.txs(operand),
+        (Mnemonic::TYA, _) => nes.tya(operand),
+        (Mnemonic::PHA, _) => nes.pha(operand),
+        (Mnemonic::PHP, _) => nes.php(operand),
+        (Mnemonic::PLA, _) => nes.pla(operand),
+        (Mnemonic::PLP, _) => nes.plp(operand),
+        (Mnemonic::AND, _) => nes.and(operand),
+        (Mnemonic::EOR, _) => nes.eor(operand),
+        (Mnemonic::ORA, _) => nes.ora(operand),
+        (Mnemonic::BIT, _) => nes.bit(operand),
+        (Mnemonic::ADC, _) => nes.adc(operand),
+        (Mnemonic::SBC, _) => nes.sbc(operand),
+        (Mnemonic::CMP, _) => nes.cmp(operand),
+        (Mnemonic::CPX, _) => nes.cpx(operand),
+        (Mnemonic::CPY, _) => nes.cpy(operand),
+        (Mnemonic::INC, _) => nes.inc(operand),
+        (Mnemonic::INX, _) => nes.inx(operand),
+        (Mnemonic::INY, _) => nes.iny(operand),
+        (Mnemonic::DEC, _) => nes.dec(operand),
+        (Mnemonic::DEX, _) => nes.dex(operand),
+        (Mnemonic::DEY, _) => nes.dey(operand),
+        (Mnemonic::ASL, AddressingMode::Accumulator) => nes.asl_for_accumelator(operand),
+        (Mnemonic::ASL, _) => nes.asl(operand),
+        (Mnemonic::LSR, AddressingMode::Accumulator) => nes.lsr_for_accumelator(operand),
+        (Mnemonic::LSR, _) => nes.lsr(operand),
+        (Mnemonic::ROL, AddressingMode::Accumulator) => nes.rol_for_accumelator(operand),
+        (Mnemonic::ROL, _) => nes.rol(operand),
+        (Mnemonic::ROR, AddressingMode::Accumulator) => nes.ror_for_accumelator(operand),
+        (Mnemonic::ROR, _) => nes.ror(operand),
+        (Mnemonic::JMP, _) => nes.jmp(operand),
+        (Mnemonic::JSR, _) => nes.jsr(operand),
+        (Mnemonic::RTS, _) => nes.rts(operand),
+        (Mnemonic::RTI, _) => nes.rti(operand),
+        (Mnemonic::BCC, _) => nes.bcc(operand),
+        (Mnemonic::BCS, _) => nes.bcs(operand),
+        (Mnemonic::BEQ, _) => nes.beq(operand),
+        (Mnemonic::BMI, _) => nes.bmi(operand),
+        (Mnemonic::BNE, _) => nes.bne(operand),
+        (Mnemonic::BPL, _) => nes.bpl(operand),
+        (Mnemonic::BVC, _) => nes.bvc(operand),
+        (Mnemonic::BVS, _) => nes.bvs(operand),
+        (Mnemonic::CLC, _) => nes.clc(operand),
+        (Mnemonic::CLD, _) => nes.cld(operand),
+        (Mnemonic::CLI, _) => nes.cli(operand),
+        (Mnemonic::CLV, _) => nes.clv(operand),
+        (Mnemonic::SEC, _) => nes.sec(operand),
+        (Mnemonic::SED, _) => nes.sed(operand),
+        (Mnemonic::SEI, _) => nes.sei(operand),
+        (Mnemonic::BRK, _) => nes.brk(operand),
+        (Mnemonic::NOP, _) => nes.nop(operand),
+        (Mnemonic::LAX, _) => nes.lax(operand),
+        (Mnemonic::SAX, _) => nes.sax(operand),
+        (Mnemonic::DCP, _) => nes.dcp(operand),
+        (Mnemonic::ISB, _) => nes.isb(operand),
+        (Mnemonic::SLO, _) => nes.slo(operand),
+        (Mnemonic::RLA, _) => nes.rla(operand),
+        (Mnemonic::SRE, _) => nes.sre(operand),
+        (Mnemonic::RRA, _) => nes.rra(operand),
     }
-
-    fn fetch(&mut self, cpu: &mut Cpu) -> Byte {
-        let opcode = self.read(cpu.pc);
-        cpu.pc += 1;
-        opcode
-    }
-
-    // fn get_operand(&mut self, cpu: &mut Cpu, addressing_mode: AddressingMode) -> Operand;
-    fn execute(&mut self, cpu: &mut Cpu, instruction: Instruction);
 }
 
-pub trait CpuTick {
-    fn cpu_tick(&mut self);
-}
-
-pub trait CpuStack {
-    fn push_stack(&mut self, cpu: &mut Cpu, value: Byte);
-    fn push_stack_word(&mut self, cpu: &mut Cpu, word: Word);
-
-    fn pull_stack(&mut self, cpu: &mut Cpu) -> Byte;
-    fn pull_stack_word(&mut self, cpu: &mut Cpu) -> Word;
-}
-
-impl<T: Bus> CpuStack for T {
-    fn push_stack(&mut self, cpu: &mut Cpu, value: Byte) {
-        self.write(Word::from(cpu.s) + 0x100, value);
-        cpu.s -= 1;
-    }
-
-    fn push_stack_word(&mut self, cpu: &mut Cpu, word: Word) {
-        self.push_stack(cpu, (word >> 8).byte());
-        self.push_stack(cpu, (word & 0xFF).byte());
-    }
-
-    fn pull_stack(&mut self, cpu: &mut Cpu) -> Byte {
-        cpu.s += 1;
-        self.read(Word::from(cpu.s) + 0x100)
-    }
-
-    fn pull_stack_word(&mut self, cpu: &mut Cpu) -> Word {
-        let l: Word = self.pull_stack(cpu).into();
-        let h: Word = self.pull_stack(cpu).into();
-        h << 8 | l
-    }
-}
-
-type Operand = Word;
-
-// http://wiki.nesdev.com/w/index.php/CPU_addressing_modes
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[rustfmt::skip]
-enum AddressingMode {
-    Implicit,
-    Accumulator,
-    Immediate,
-    ZeroPage, ZeroPageX, ZeroPageY,
-    Absolute,
-    AbsoluteX { penalty: bool },
-    AbsoluteY { penalty: bool },
-    Relative,
-    Indirect, IndexedIndirect, IndirectIndexed,
-}
-
-// http://obelisk.me.uk/6502/reference.html
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[rustfmt::skip]
-enum Mnemonic {
-    // Load/Store Operations
-    LDA, LDX, LDY, STA, STX, STY,
-    // Register Operations
-    TAX, TSX, TAY, TXA, TXS, TYA,
-    // Stack instructions
-    PHA, PHP, PLA, PLP,
-    // Logical instructions
-    AND, EOR, ORA, BIT,
-    // Arithmetic instructions
-    ADC, SBC, CMP, CPX, CPY,
-    // Increment/Decrement instructions
-    INC, INX, INY, DEC, DEX, DEY,
-    // Shift instructions
-    ASL, LSR, ROL, ROR,
-    // Jump instructions
-    JMP, JSR, RTS, RTI,
-    // Branch instructions
-    BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS,
-    // Flag control instructions
-    CLC, CLD, CLI, CLV, SEC, SED, SEI,
-    // Misc
-    BRK, NOP,
-    // Unofficial
-    LAX, SAX, DCP, ISB, SLO, RLA, SRE, RRA,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Instruction {
-    mnemonic: Mnemonic,
-    addressing_mode: AddressingMode,
-}
-
-fn decode(opcode: Byte) -> Instruction {
-    let (m, am) = match opcode.u8() {
+fn decode(opcode: Byte) -> (Mnemonic, AddressingMode) {
+    match opcode.u8() {
         0xA9 => (Mnemonic::LDA, AddressingMode::Immediate),
         0xA5 => (Mnemonic::LDA, AddressingMode::ZeroPage),
         0xB5 => (Mnemonic::LDA, AddressingMode::ZeroPageX),
@@ -385,184 +445,720 @@ fn decode(opcode: Byte) -> Instruction {
         0x7F => (Mnemonic::RRA, AddressingMode::AbsoluteX { penalty: false }),
 
         _ => (Mnemonic::NOP, AddressingMode::Implicit),
-    };
-    Instruction {
-        mnemonic: m,
-        addressing_mode: am,
     }
 }
 
-trait GetOperand: CpuTick + Bus {
-    fn get_operand(&mut self, cpu: &mut Cpu, addressing_mode: AddressingMode) -> Operand {
-        match addressing_mode {
-            AddressingMode::Implicit => Word::from(0x00u16),
-            AddressingMode::Accumulator => cpu.a.into(),
-            AddressingMode::Immediate => {
-                let operand = cpu.pc;
-                cpu.pc += 1;
-                operand
+impl Bus for Nes {
+    fn read(&mut self, addr: impl Into<Word>) -> Byte {
+        self.cpu.cycles += 1;
+        self.read_bus(addr)
+    }
+
+    fn write(&mut self, addr: impl Into<Word>, value: impl Into<Byte>) {
+        let addr = addr.into();
+        let a: u16 = addr.into();
+        let value = value.into();
+        let v: u16 = value.into();
+
+        if a == 0x4014u16 {
+            // OAMDMA
+            let start: u16 = v * 0x100u16;
+            for a in start..(start + 0xFF) {
+                let data = self.read_bus(a);
+                self.cpu.cycles += 1;
+                self.write_bus(0x2004u16, data);
+                self.cpu.cycles += 1;
             }
-            AddressingMode::ZeroPage => {
-                let operand = Word::from(self.read(cpu.pc)) & 0xFF;
-                cpu.pc += 1;
-                operand
+            // dummy cycles
+            self.cpu.cycles += 1;
+            if self.cpu.cycles % 2 == 1 {
+                self.cpu.cycles += 1;
             }
-            AddressingMode::ZeroPageX => {
-                let operand = (Word::from(self.read(cpu.pc)) + Word::from(cpu.x)) & 0xFF;
-                cpu.pc += 1;
-                self.cpu_tick();
-                operand
+            return;
+        }
+        self.cpu.cycles += 1;
+        self.write_bus(addr, value);
+    }
+}
+
+// http://wiki.nesdev.com/w/index.php/CPU_addressing_modes
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[rustfmt::skip]
+enum AddressingMode {
+    Implicit,
+    Accumulator,
+    Immediate,
+    ZeroPage, ZeroPageX, ZeroPageY,
+    Absolute,
+    AbsoluteX { penalty: bool },
+    AbsoluteY { penalty: bool },
+    Relative,
+    Indirect, IndexedIndirect, IndirectIndexed,
+}
+
+// http://obelisk.me.uk/6502/reference.html
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[rustfmt::skip]
+enum Mnemonic {
+    // Load/Store Operations
+    LDA, LDX, LDY, STA, STX, STY,
+    // Register Operations
+    TAX, TSX, TAY, TXA, TXS, TYA,
+    // Stack instructions
+    PHA, PHP, PLA, PLP,
+    // Logical instructions
+    AND, EOR, ORA, BIT,
+    // Arithmetic instructions
+    ADC, SBC, CMP, CPX, CPY,
+    // Increment/Decrement instructions
+    INC, INX, INY, DEC, DEX, DEY,
+    // Shift instructions
+    ASL, LSR, ROL, ROR,
+    // Jump instructions
+    JMP, JSR, RTS, RTI,
+    // Branch instructions
+    BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS,
+    // Flag control instructions
+    CLC, CLD, CLI, CLV, SEC, SED, SEI,
+    // Misc
+    BRK, NOP,
+    // Unofficial
+    LAX, SAX, DCP, ISB, SLO, RLA, SRE, RRA,
+}
+
+type Operand = Word;
+
+mod instructions {
+    use super::*;
+
+    impl Nes {
+        // LoaD Accumulator
+        pub(super) fn lda(&mut self, operand: Operand) {
+            self.cpu.a = self.read(operand);
+            self.cpu.p.set_zn(self.cpu.a)
+        }
+
+        // LoaD X register
+        pub(super) fn ldx(&mut self, operand: Operand) {
+            self.cpu.x = self.read(operand);
+            self.cpu.p.set_zn(self.cpu.x)
+        }
+
+        // LoaD Y register
+        pub(super) fn ldy(&mut self, operand: Operand) {
+            self.cpu.y = self.read(operand);
+            self.cpu.p.set_zn(self.cpu.y)
+        }
+
+        // STore Accumulator
+        pub(super) fn sta(&mut self, operand: Operand) {
+            self.write(operand, self.cpu.a)
+        }
+
+        // STore X register
+        pub(super) fn stx(&mut self, operand: Operand) {
+            self.write(operand, self.cpu.x)
+        }
+
+        // STore Y register
+        pub(super) fn sty(&mut self, operand: Operand) {
+            self.write(operand, self.cpu.y)
+        }
+
+        // Transfer Accumulator to X
+        pub(super) fn tax(&mut self, _: Operand) {
+            self.cpu.x = self.cpu.a;
+            self.cpu.p.set_zn(self.cpu.x);
+            self.cpu.cycles += 1;
+        }
+
+        // Transfer Stack pointer to X
+        pub(super) fn tsx(&mut self, _: Operand) {
+            self.cpu.x = self.cpu.s;
+            self.cpu.p.set_zn(self.cpu.x);
+            self.cpu.cycles += 1;
+        }
+
+        // Transfer Accumulator to Y
+        pub(super) fn tay(&mut self, _: Operand) {
+            self.cpu.y = self.cpu.a;
+            self.cpu.p.set_zn(self.cpu.y);
+            self.cpu.cycles += 1;
+        }
+
+        // Transfer X to Accumulator
+        pub(super) fn txa(&mut self, _: Operand) {
+            self.cpu.a = self.cpu.x;
+            self.cpu.p.set_zn(self.cpu.a);
+            self.cpu.cycles += 1;
+        }
+
+        // Transfer X to Stack pointer
+        pub(super) fn txs(&mut self, _: Operand) {
+            self.cpu.s = self.cpu.x;
+            self.cpu.cycles += 1;
+        }
+
+        // Transfer Y to Accumulator
+        pub(super) fn tya(&mut self, _: Operand) {
+            self.cpu.a = self.cpu.y;
+            self.cpu.p.set_zn(self.cpu.a);
+            self.cpu.cycles += 1;
+        }
+
+        // PusH Accumulator
+        pub(super) fn pha(&mut self, _: Operand) {
+            self.push_stack(self.cpu.a);
+            self.cpu.cycles += 1;
+        }
+
+        // PusH Processor status
+        pub(super) fn php(&mut self, _: Operand) {
+            // https://wiki.selfdev.com/w/index.php/Statu_s_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?titl_e=6502_BRK_and_B_bit
+            self.push_stack((self.cpu.p | Status::OPERATED_B).bits().into());
+            self.cpu.cycles += 1;
+        }
+
+        // PulL Accumulator
+        pub(super) fn pla(&mut self, _: Operand) {
+            self.cpu.a = self.pull_stack();
+            self.cpu.p.set_zn(self.cpu.a);
+            self.cpu.cycles += 1;
+            self.cpu.cycles += 1;
+        }
+
+        // PulL Processor status
+        pub(super) fn plp(&mut self, _: Operand) {
+            // https://wiki.selfdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.cpu.p =
+                Status::from_bits_truncate(self.pull_stack().into()) & !Status::B | Status::R;
+            self.cpu.cycles += 1;
+            self.cpu.cycles += 1;
+        }
+
+        // bitwise AND with accumulator
+        pub(super) fn and(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            self.cpu.a &= value;
+            self.cpu.p.set_zn(self.cpu.a);
+        }
+
+        // bitwise Exclusive OR
+        pub(super) fn eor(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            self.cpu.a ^= value;
+            self.cpu.p.set_zn(self.cpu.a);
+        }
+
+        // bitwise OR with Accumulator
+        pub(super) fn ora(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            self.cpu.a |= value;
+            self.cpu.p.set_zn(self.cpu.a);
+        }
+
+        // test BITs
+        pub(super) fn bit(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            let data = self.cpu.a & value;
+            self.cpu.p.set(Status::Z, data.u8() == 0);
+            self.cpu.p.set(Status::V, value.nth(6) == 1);
+            self.cpu.p.set(Status::N, value.nth(7) == 1);
+        }
+
+        // ADd with Carry
+        pub(super) fn adc(&mut self, operand: Operand) {
+            let a = self.cpu.a;
+            let val = self.read(operand);
+            let mut result = a + val;
+
+            if self.cpu.p.contains(Status::C) {
+                result += 1;
             }
-            AddressingMode::ZeroPageY => {
-                let operand = (Word::from(self.read(cpu.pc)) + Word::from(cpu.y)) & 0xFF;
-                cpu.pc += 1;
-                self.cpu_tick();
-                operand
+
+            // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+            let a7 = a.nth(7);
+            let v7 = val.nth(7);
+            let c6 = a7 ^ v7 ^ result.nth(7);
+            let c7 = (a7 & v7) | (a7 & c6) | (v7 & c6);
+
+            self.cpu.p.set(Status::C, c7 == 1);
+            self.cpu.p.set(Status::V, (c6 ^ c7) == 1);
+
+            self.cpu.a = result;
+            self.cpu.p.set_zn(self.cpu.a)
+        }
+
+        // SuBtract with carry
+        pub(super) fn sbc(&mut self, operand: Operand) {
+            let a = self.cpu.a;
+            let val = !self.read(operand);
+            let mut result = a + val;
+
+            if self.cpu.p.contains(Status::C) {
+                result += 1;
             }
-            AddressingMode::Absolute => {
-                let operand = self.read_word(cpu.pc);
-                cpu.pc += 2;
-                operand
+
+            // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+            let a7 = a.nth(7);
+            let v7 = val.nth(7);
+            let c6 = a7 ^ v7 ^ result.nth(7);
+            let c7 = (a7 & v7) | (a7 & c6) | (v7 & c6);
+
+            self.cpu.p.set(Status::C, c7 == 1);
+            self.cpu.p.set(Status::V, (c6 ^ c7) == 1);
+
+            self.cpu.a = result;
+            self.cpu.p.set_zn(self.cpu.a)
+        }
+
+        // CoMPare accumulator
+        pub(super) fn cmp(&mut self, operand: Operand) {
+            let cmp = Word::from(self.cpu.a) - Word::from(self.read(operand));
+            let cmp_i16 = <Word as Into<i16>>::into(cmp);
+
+            self.cpu.p.set(Status::C, 0 <= cmp_i16);
+            self.cpu.p.set_zn(cmp_i16 as u16);
+        }
+
+        // ComPare X register
+        pub(super) fn cpx(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            let cmp = self.cpu.x - value;
+
+            self.cpu.p.set(Status::C, value <= self.cpu.x);
+            self.cpu.p.set_zn(cmp);
+        }
+
+        // ComPare Y register
+        pub(super) fn cpy(&mut self, operand: Operand) {
+            let value = self.read(operand);
+            let cmp = self.cpu.y - value;
+
+            self.cpu.p.set(Status::C, value <= self.cpu.y);
+            self.cpu.p.set_zn(cmp);
+        }
+
+        // INCrement memory
+        pub(super) fn inc(&mut self, operand: Operand) {
+            let result = self.read(operand) + 1;
+
+            self.cpu.p.set_zn(result);
+            self.write(operand, result);
+            self.cpu.cycles += 1
+        }
+
+        // INcrement X register
+        pub(super) fn inx(&mut self, _: Operand) {
+            self.cpu.x += 1;
+            self.cpu.p.set_zn(self.cpu.x);
+            self.cpu.cycles += 1
+        }
+
+        // INcrement Y register
+        pub(super) fn iny(&mut self, _: Operand) {
+            self.cpu.y += 1;
+            self.cpu.p.set_zn(self.cpu.y);
+            self.cpu.cycles += 1
+        }
+
+        // DECrement memory
+        pub(super) fn dec(&mut self, operand: Operand) {
+            let result = self.read(operand) - 1;
+
+            self.cpu.p.set_zn(result);
+            self.write(operand, result);
+            self.cpu.cycles += 1
+        }
+
+        // DEcrement X register
+        pub(super) fn dex(&mut self, _: Operand) {
+            self.cpu.x -= 1;
+            self.cpu.p.set_zn(self.cpu.x);
+            self.cpu.cycles += 1
+        }
+
+        // DEcrement Y register
+        pub(super) fn dey(&mut self, _: Operand) {
+            self.cpu.y -= 1;
+            self.cpu.p.set_zn(self.cpu.y);
+            self.cpu.cycles += 1
+        }
+
+        // Arithmetic Shift Left
+        pub(super) fn asl(&mut self, operand: Operand) {
+            let mut data = self.read(operand);
+
+            self.cpu.p.set(Status::C, data.nth(7) == 1);
+            data <<= 1;
+            self.cpu.p.set_zn(data);
+
+            self.write(operand, data);
+            self.cpu.cycles += 1;
+        }
+
+        pub(super) fn asl_for_accumelator(&mut self, _: Operand) {
+            self.cpu.p.set(Status::C, self.cpu.a.nth(7) == 1);
+            self.cpu.a <<= 1;
+            self.cpu.p.set_zn(self.cpu.a);
+
+            self.cpu.cycles += 1;
+        }
+
+        // Logical Shift Right
+        pub(super) fn lsr(&mut self, operand: Operand) {
+            let mut data = self.read(operand);
+
+            self.cpu.p.set(Status::C, data.nth(0) == 1);
+            data >>= 1;
+            self.cpu.p.set_zn(data);
+
+            self.write(operand, data);
+            self.cpu.cycles += 1;
+        }
+
+        pub(super) fn lsr_for_accumelator(&mut self, _: Operand) {
+            self.cpu.p.set(Status::C, self.cpu.a.nth(0) == 1);
+            self.cpu.a >>= 1;
+            self.cpu.p.set_zn(self.cpu.a);
+
+            self.cpu.cycles += 1;
+        }
+
+        // ROtate Left
+        pub(super) fn rol(&mut self, operand: Operand) {
+            let mut data = self.read(operand);
+            let c = data.nth(7);
+
+            data <<= 1;
+            if self.cpu.p.contains(Status::C) {
+                data |= 0x01;
             }
-            AddressingMode::AbsoluteX { penalty } => {
-                let data = self.read_word(cpu.pc);
-                let operand = data + Word::from(cpu.x);
-                cpu.pc += 2;
-                if penalty {
-                    if page_crossed_u16(cpu.x, data) {
-                        self.cpu_tick();
-                    }
-                } else {
-                    self.cpu_tick();
-                }
-                operand
+            self.cpu.p.set(Status::C, c == 1);
+            self.cpu.p.set_zn(data);
+            self.write(operand, data);
+            self.cpu.cycles += 1;
+        }
+
+        pub(super) fn rol_for_accumelator(&mut self, _: Operand) {
+            let c = self.cpu.a.nth(7);
+
+            let mut a = self.cpu.a << 1;
+            if self.cpu.p.contains(Status::C) {
+                a |= 0x01;
             }
-            AddressingMode::AbsoluteY { penalty } => {
-                let data = self.read_word(cpu.pc);
-                let operand = data + Word::from(cpu.y);
-                cpu.pc += 2;
-                if penalty {
-                    if page_crossed_u16(cpu.y, data) {
-                        self.cpu_tick();
-                    }
-                } else {
-                    self.cpu_tick();
-                }
-                operand
+            self.cpu.a = a;
+            self.cpu.p.set(Status::C, c == 1);
+            self.cpu.p.set_zn(self.cpu.a);
+            self.cpu.cycles += 1;
+        }
+
+        // ROtate Right
+        pub(super) fn ror(&mut self, operand: Operand) {
+            let mut data = self.read(operand);
+            let c = data.nth(0);
+
+            data >>= 1;
+            if self.cpu.p.contains(Status::C) {
+                data |= 0x80;
             }
-            AddressingMode::Relative => {
-                let operand: Word = self.read(cpu.pc).into();
-                cpu.pc += 1;
-                operand
+            self.cpu.p.set(Status::C, c == 1);
+            self.cpu.p.set_zn(data);
+            self.write(operand, data);
+            self.cpu.cycles += 1;
+        }
+
+        pub(super) fn ror_for_accumelator(&mut self, _: Operand) {
+            let c = self.cpu.a.nth(0);
+
+            let mut a = self.cpu.a >> 1;
+            if self.cpu.p.contains(Status::C) {
+                a |= 0x80;
             }
-            AddressingMode::Indirect => {
-                let data = self.read_word(cpu.pc);
-                let operand = self.read_on_indirect(data);
-                cpu.pc += 2;
-                operand
+            self.cpu.a = a;
+            self.cpu.p.set(Status::C, c == 1);
+            self.cpu.p.set_zn(self.cpu.a);
+            self.cpu.cycles += 1;
+        }
+
+        // JuMP
+        pub(super) fn jmp(&mut self, operand: Operand) {
+            self.cpu.pc = operand
+        }
+
+        // Jump to SubRoutine
+        pub(super) fn jsr(&mut self, operand: Operand) {
+            self.push_stack_word(self.cpu.pc - 1);
+            self.cpu.cycles += 1;
+            self.cpu.pc = operand
+        }
+
+        // ReTurn from Subroutine
+        pub(super) fn rts(&mut self, _: Operand) {
+            self.cpu.cycles += 1;
+            self.cpu.cycles += 1;
+            self.cpu.cycles += 1;
+            self.cpu.pc = self.pull_stack_word() + 1
+        }
+
+        // ReTurn from Interrupt
+        pub(super) fn rti(&mut self, _: Operand) {
+            // https://wiki.selfdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.cpu.cycles += 1;
+            self.cpu.cycles += 1;
+            self.cpu.p =
+                Status::from_bits_truncate(self.pull_stack().into()) & !Status::B | Status::R;
+            self.cpu.pc = self.pull_stack_word()
+        }
+
+        // Branch if Carry Clear
+        pub(super) fn bcc(&mut self, operand: Operand) {
+            if !self.cpu.p.contains(Status::C) {
+                self.branch(operand)
             }
-            AddressingMode::IndexedIndirect => {
-                let data = self.read(cpu.pc);
-                let operand = self.read_on_indirect(Word::from(data + cpu.x) & 0xFF);
-                cpu.pc += 1;
-                self.cpu_tick();
-                operand
+        }
+
+        // Branch if Carry Set
+        pub(super) fn bcs(&mut self, operand: Operand) {
+            if self.cpu.p.contains(Status::C) {
+                self.branch(operand)
             }
-            AddressingMode::IndirectIndexed => {
-                let y: Word = cpu.y.into();
-                let data: Word = self.read(cpu.pc).into();
-                let operand = self.read_on_indirect(data) + y;
-                cpu.pc += 1;
-                if page_crossed_u16(y, operand - y) {
-                    self.cpu_tick();
-                }
-                operand
+        }
+
+        // Branch if EQual
+        pub(super) fn beq(&mut self, operand: Operand) {
+            if self.cpu.p.contains(Status::Z) {
+                self.branch(operand)
             }
+        }
+
+        // Branch if MInus
+        pub(super) fn bmi(&mut self, operand: Operand) {
+            if self.cpu.p.contains(Status::N) {
+                self.branch(operand)
+            }
+        }
+
+        // Branch if NotEqual
+        pub(super) fn bne(&mut self, operand: Operand) {
+            if !self.cpu.p.contains(Status::Z) {
+                self.branch(operand)
+            }
+        }
+
+        // Branch if PLus
+        pub(super) fn bpl(&mut self, operand: Operand) {
+            if !self.cpu.p.contains(Status::N) {
+                self.branch(operand)
+            }
+        }
+
+        // Branch if oVerflow Clear
+        pub(super) fn bvc(&mut self, operand: Operand) {
+            if !self.cpu.p.contains(Status::V) {
+                self.branch(operand)
+            }
+        }
+
+        // Branch if oVerflow Set
+        pub(super) fn bvs(&mut self, operand: Operand) {
+            if self.cpu.p.contains(Status::V) {
+                self.branch(operand)
+            }
+        }
+
+        // CLear Carry
+        pub(super) fn clc(&mut self, _: Operand) {
+            self.cpu.p.remove(Status::C);
+            self.cpu.cycles += 1
+        }
+
+        // CLear Decimal
+        pub(super) fn cld(&mut self, _: Operand) {
+            self.cpu.p.remove(Status::D);
+            self.cpu.cycles += 1
+        }
+
+        // Clear Interrupt
+        pub(super) fn cli(&mut self, _: Operand) {
+            self.cpu.p.remove(Status::I);
+            self.cpu.cycles += 1
+        }
+
+        // CLear oVerflow
+        pub(super) fn clv(&mut self, _: Operand) {
+            self.cpu.p.remove(Status::V);
+            self.cpu.cycles += 1
+        }
+
+        // SEt Carry flag
+        pub(super) fn sec(&mut self, _: Operand) {
+            self.cpu.p.insert(Status::C);
+            self.cpu.cycles += 1
+        }
+
+        // SEt Decimal flag
+        pub(super) fn sed(&mut self, _: Operand) {
+            self.cpu.p |= Status::D;
+            self.cpu.cycles += 1
+        }
+
+        // SEt Interrupt disable
+        pub(super) fn sei(&mut self, _: Operand) {
+            self.cpu.p.set(Status::I, true);
+            self.cpu.cycles += 1
+        }
+
+        // BReaK(force interrupt)
+        pub(super) fn brk(&mut self, _: Operand) {
+            self.push_stack_word(self.cpu.pc);
+            // https://wiki.selfdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.push_stack((self.cpu.p | Status::INTERRUPTED_B).bits().into());
+            self.cpu.cycles += 1;
+            self.cpu.pc = self.read_word(0xFFFEu16.into());
+        }
+
+        // No OPeration
+        pub(super) fn nop(&mut self, _: Operand) {
+            self.cpu.cycles += 1;
+        }
+
+        pub(super) fn branch(&mut self, operand: Operand) {
+            self.cpu.cycles += 1;
+            let offset = <Word as Into<u16>>::into(operand) as i8;
+            if page_crossed(offset, self.cpu.pc) {
+                self.cpu.cycles += 1;
+            }
+            self.cpu.pc += offset as u16
+        }
+
+        // Load Accumulator and X register
+        pub(super) fn lax(&mut self, operand: Operand) {
+            let data = self.read(operand);
+            self.cpu.a = data;
+            self.cpu.x = data;
+            self.cpu.p.set_zn(data);
+        }
+
+        // Store Accumulator and X register
+        pub(super) fn sax(&mut self, operand: Operand) {
+            self.write(operand, self.cpu.a & self.cpu.x)
+        }
+
+        // Decrement memory and ComPare to accumulator
+        pub(super) fn dcp(&mut self, operand: Operand) {
+            let result = self.read(operand) - 1;
+            self.cpu.p.set_zn(result);
+            self.write(operand, result);
+
+            self.cmp(operand)
+        }
+
+        // Increment memory and SuBtract with carry
+        pub(super) fn isb(&mut self, operand: Operand) {
+            let result = self.read(operand) + 1;
+            self.cpu.p.set_zn(result);
+            self.write(operand, result);
+
+            self.sbc(operand)
+        }
+
+        // arithmetic Shift Left and bitwise Or with accumulator
+        pub(super) fn slo(&mut self, operand: Operand) {
+            let mut data = self.read(operand);
+
+            self.cpu.p.set(Status::C, data.nth(7) == 1);
+            data <<= 1;
+            self.cpu.p.set_zn(data);
+            self.write(operand, data);
+
+            self.ora(operand)
+        }
+
+        // Rotate Left and bitwise And with accumulator
+        pub(super) fn rla(&mut self, operand: Operand) {
+            // rotateLeft excluding tick
+            let mut data = self.read(operand);
+            let c = data & 0x80;
+
+            data <<= 1;
+            if self.cpu.p.contains(Status::C) {
+                data |= 0x01
+            }
+            self.cpu.p.remove(Status::C | Status::Z | Status::N);
+            self.cpu.p.set(Status::C, c.u8() == 0x80);
+            self.cpu.p.set_zn(data);
+
+            self.write(operand, data);
+
+            self.and(operand)
+        }
+
+        // logical Shift Right and bitwise Exclusive or
+        pub(super) fn sre(&mut self, operand: Operand) {
+            // logicalShiftRight excluding tick
+            let mut data = self.read(operand);
+
+            self.cpu.p.set(Status::C, data.nth(0) == 1);
+            data >>= 1;
+            self.cpu.p.set_zn(data);
+            self.write(operand, data);
+
+            self.eor(operand)
+        }
+
+        // Rotate Right and Add with carry
+        pub(super) fn rra(&mut self, operand: Operand) {
+            // rotateRight excluding tick
+            let mut data = self.read(operand);
+            let c = data.nth(0);
+
+            data >>= 1;
+            if self.cpu.p.contains(Status::C) {
+                data |= 0x80
+            }
+            self.cpu.p.set(Status::C, c == 1);
+            self.cpu.p.set_zn(data);
+
+            self.write(operand, data);
+
+            self.adc(operand)
         }
     }
 }
 
-impl<T: CpuTick + Bus> GetOperand for T {}
-impl<T: CpuTick + Bus + CpuStack> InstructionSet for T {}
+impl Status {
+    fn set_zn(&mut self, value: impl Into<u16>) {
+        let v: u16 = value.into();
+        self.set(Self::Z, v == 0);
+        self.set(Self::N, (v >> 7) & 1 == 1);
+    }
+}
 
-impl<T: CpuTick + Bus + CpuStack> CpuStep for T {
-    fn execute(&mut self, cpu: &mut Cpu, instruction: Instruction) {
-        let operand = self.get_operand(cpu, instruction.addressing_mode);
+impl Nes {
+    fn push_stack(&mut self, value: Byte) {
+        self.write(Word::from(self.cpu.s) + 0x100, value);
+        self.cpu.s -= 1;
+    }
 
-        match (instruction.mnemonic, instruction.addressing_mode) {
-            (Mnemonic::LDA, _) => self.lda(cpu, operand),
-            (Mnemonic::LDX, _) => self.ldx(cpu, operand),
-            (Mnemonic::LDY, _) => self.ldy(cpu, operand),
-            (Mnemonic::STA, AddressingMode::IndirectIndexed) => {
-                self.sta(cpu, operand);
-                self.cpu_tick();
-            }
-            (Mnemonic::STA, _) => self.sta(cpu, operand),
-            (Mnemonic::STX, _) => self.stx(cpu, operand),
-            (Mnemonic::STY, _) => self.sty(cpu, operand),
-            (Mnemonic::TAX, _) => self.tax(cpu),
-            (Mnemonic::TSX, _) => self.tsx(cpu),
-            (Mnemonic::TAY, _) => self.tay(cpu),
-            (Mnemonic::TXA, _) => self.txa(cpu),
-            (Mnemonic::TXS, _) => self.txs(cpu),
-            (Mnemonic::TYA, _) => self.tya(cpu),
-            (Mnemonic::PHA, _) => self.pha(cpu),
-            (Mnemonic::PHP, _) => self.php(cpu),
-            (Mnemonic::PLA, _) => self.pla(cpu),
-            (Mnemonic::PLP, _) => self.plp(cpu),
-            (Mnemonic::AND, _) => self.and(cpu, operand),
-            (Mnemonic::EOR, _) => self.eor(cpu, operand),
-            (Mnemonic::ORA, _) => self.ora(cpu, operand),
-            (Mnemonic::BIT, _) => self.bit(cpu, operand),
-            (Mnemonic::ADC, _) => self.adc(cpu, operand),
-            (Mnemonic::SBC, _) => self.sbc(cpu, operand),
-            (Mnemonic::CMP, _) => self.cmp(cpu, operand),
-            (Mnemonic::CPX, _) => self.cpx(cpu, operand),
-            (Mnemonic::CPY, _) => self.cpy(cpu, operand),
-            (Mnemonic::INC, _) => self.inc(cpu, operand),
-            (Mnemonic::INX, _) => self.inx(cpu),
-            (Mnemonic::INY, _) => self.iny(cpu),
-            (Mnemonic::DEC, _) => self.dec(cpu, operand),
-            (Mnemonic::DEX, _) => self.dex(cpu),
-            (Mnemonic::DEY, _) => self.dey(cpu),
-            (Mnemonic::ASL, AddressingMode::Accumulator) => self.asl_for_accumelator(cpu),
-            (Mnemonic::ASL, _) => self.asl(cpu, operand),
-            (Mnemonic::LSR, AddressingMode::Accumulator) => self.lsr_for_accumelator(cpu),
-            (Mnemonic::LSR, _) => self.lsr(cpu, operand),
-            (Mnemonic::ROL, AddressingMode::Accumulator) => self.rol_for_accumelator(cpu),
-            (Mnemonic::ROL, _) => self.rol(cpu, operand),
-            (Mnemonic::ROR, AddressingMode::Accumulator) => self.ror_for_accumelator(cpu),
-            (Mnemonic::ROR, _) => self.ror(cpu, operand),
-            (Mnemonic::JMP, _) => self.jmp(cpu, operand),
-            (Mnemonic::JSR, _) => self.jsr(cpu, operand),
-            (Mnemonic::RTS, _) => self.rts(cpu),
-            (Mnemonic::RTI, _) => self.rti(cpu),
-            (Mnemonic::BCC, _) => self.bcc(cpu, operand),
-            (Mnemonic::BCS, _) => self.bcs(cpu, operand),
-            (Mnemonic::BEQ, _) => self.beq(cpu, operand),
-            (Mnemonic::BMI, _) => self.bmi(cpu, operand),
-            (Mnemonic::BNE, _) => self.bne(cpu, operand),
-            (Mnemonic::BPL, _) => self.bpl(cpu, operand),
-            (Mnemonic::BVC, _) => self.bvc(cpu, operand),
-            (Mnemonic::BVS, _) => self.bvs(cpu, operand),
-            (Mnemonic::CLC, _) => self.clc(cpu),
-            (Mnemonic::CLD, _) => self.cld(cpu),
-            (Mnemonic::CLI, _) => self.cli(cpu),
-            (Mnemonic::CLV, _) => self.clv(cpu),
-            (Mnemonic::SEC, _) => self.sec(cpu),
-            (Mnemonic::SED, _) => self.sed(cpu),
-            (Mnemonic::SEI, _) => self.sei(cpu),
-            (Mnemonic::BRK, _) => self.brk(cpu),
-            (Mnemonic::NOP, _) => self.nop(cpu),
-            (Mnemonic::LAX, _) => self.lax(cpu, operand),
-            (Mnemonic::SAX, _) => self.sax(cpu, operand),
-            (Mnemonic::DCP, _) => self.dcp(cpu, operand),
-            (Mnemonic::ISB, _) => self.isb(cpu, operand),
-            (Mnemonic::SLO, _) => self.slo(cpu, operand),
-            (Mnemonic::RLA, _) => self.rla(cpu, operand),
-            (Mnemonic::SRE, _) => self.sre(cpu, operand),
-            (Mnemonic::RRA, _) => self.rra(cpu, operand),
-        }
+    fn push_stack_word(&mut self, word: Word) {
+        self.push_stack((word >> 8).byte());
+        self.push_stack((word & 0xFF).byte());
+    }
+
+    fn pull_stack(&mut self) -> Byte {
+        self.cpu.s += 1;
+        self.read(Word::from(self.cpu.s) + 0x100)
+    }
+
+    fn pull_stack_word(&mut self) -> Word {
+        let l: Word = self.pull_stack().into();
+        let h: Word = self.pull_stack().into();
+        h << 8 | l
     }
 }
 
@@ -578,88 +1174,86 @@ fn page_crossed(value: impl Into<i64>, from: impl Into<i64>) -> bool {
     (b.wrapping_add(a) & 0xFF00) != (b & 0xFF00)
 }
 
+mod interrupt {
+    use super::*;
+
+    impl Cpu {
+        pub(crate) fn interrupted(&self) -> bool {
+            self.p.contains(Status::I)
+        }
+    }
+
+    impl Nes {
+        pub(crate) fn reset(&mut self) {
+            self.cpu.cycles += 5;
+            self.cpu.pc = self.read_word(0xFFFCu16.into());
+            self.cpu.p.insert(Status::I);
+            self.cpu.s -= 3;
+        }
+
+        // NMI
+        pub(crate) fn non_markable_interrupt(&mut self) {
+            self.cpu.cycles += 2;
+            self.push_stack_word(self.cpu.pc);
+            // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.push_stack((self.cpu.p | Status::INTERRUPTED_B).bits().into());
+            self.cpu.p.insert(Status::I);
+            self.cpu.pc = self.read_word(0xFFFAu16.into())
+        }
+
+        // IRQ
+        pub(crate) fn interrupt_request(&mut self) {
+            self.cpu.cycles += 2;
+            self.push_stack_word(self.cpu.pc);
+            // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.push_stack((self.cpu.p | Status::INTERRUPTED_B).bits().into());
+            self.cpu.p.insert(Status::I);
+            self.cpu.pc = self.read_word(0xFFFEu16.into())
+        }
+
+        // BRK
+        pub(crate) fn break_interrupt(&mut self) {
+            self.cpu.cycles += 2;
+            self.cpu.pc += 1;
+            self.push_stack_word(self.cpu.pc);
+            // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
+            // http://visual6502.org/wiki/index.php?title=6502_BRK_and_B_bit
+            self.push_stack((self.cpu.p | Status::INTERRUPTED_B).bits().into());
+            self.cpu.p.insert(Status::I);
+            self.cpu.pc = self.read_word(0xFFFEu16.into())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    struct TestNes {
-        wram: [u8; 0x2000],
-        cycles: u64,
-    }
-
-    impl Bus for TestNes {
-        fn read(&mut self, addr: impl Into<Word>) -> Byte {
-            let w = addr.into();
-            let a: u16 = w.into();
-            self.wram[a as usize].into()
-        }
-        fn write(&mut self, addr: impl Into<Word>, value: impl Into<Byte>) {
-            let w = addr.into();
-            let a: u16 = w.into();
-            let v = value.into();
-            self.wram[a as usize] = v.into();
-        }
-    }
-
-    impl CpuTick for TestNes {
-        fn cpu_tick(&mut self) {
-            self.cycles += 1;
-        }
-    }
-
-    #[test]
-    fn test_fetch() {
-        let mut nes = TestNes {
-            wram: [0; 0x2000],
-            cycles: 0,
-        };
-
-        nes.wram[0x1051] = 0x90;
-        nes.wram[0x1052] = 0x3F;
-        nes.wram[0x1053] = 0x81;
-        nes.wram[0x1054] = 0x90;
-
-        let mut cpu = Cpu::default();
-        cpu.pc = 0x1052u16.into();
-
-        let instruction = nes.fetch(&mut cpu);
-        assert_eq!(instruction, 0x3F.into());
-
-        let instruction = nes.fetch(&mut cpu);
-        assert_eq!(instruction, 0x81.into());
-    }
-
     #[test]
     fn test_stack() {
-        let mut nes = TestNes {
-            wram: [0; 0x2000],
-            cycles: 0,
-        };
-        let mut cpu = Cpu::default();
+        let mut nes = Nes::default();
 
-        cpu.s = 0xFF.into();
+        nes.cpu.s = 0xFF.into();
 
-        nes.push_stack(&mut cpu, 0x83.into());
-        nes.push_stack(&mut cpu, 0x14.into());
+        nes.push_stack(0x83.into());
+        nes.push_stack(0x14.into());
 
-        assert_eq!(nes.pull_stack(&mut cpu), 0x14.into());
-        assert_eq!(nes.pull_stack(&mut cpu), 0x83.into());
+        assert_eq!(nes.pull_stack(), 0x14.into());
+        assert_eq!(nes.pull_stack(), 0x83.into());
     }
 
     #[test]
     fn test_stack_word() {
-        let mut nes = TestNes {
-            wram: [0; 0x2000],
-            cycles: 0,
-        };
-        let mut cpu = Cpu::default();
+        let mut nes = Nes::default();
 
-        cpu.s = 0xFF.into();
+        nes.cpu.s = 0xFF.into();
 
-        nes.push_stack_word(&mut cpu, 0x98AFu16.into());
-        nes.push_stack_word(&mut cpu, 0x003Au16.into());
+        nes.push_stack_word(0x98AFu16.into());
+        nes.push_stack_word(0x003Au16.into());
 
-        assert_eq!(nes.pull_stack_word(&mut cpu), 0x003Au16.into());
-        assert_eq!(nes.pull_stack_word(&mut cpu), 0x98AFu16.into());
+        assert_eq!(nes.pull_stack_word(), 0x003Au16.into());
+        assert_eq!(nes.pull_stack_word(), 0x98AFu16.into());
     }
 }

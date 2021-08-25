@@ -10,13 +10,14 @@ extern crate assert_matches;
 extern crate anyhow;
 extern crate thiserror;
 
-mod data_unit;
+pub mod emulator;
+pub mod nes;
+pub mod rom;
 
+#[macro_use]
 mod bus;
 mod cpu;
-mod nes;
+mod data_unit;
+mod interrupt;
 mod ppu;
-pub mod rom;
 mod scanline;
-
-mod emulator;
