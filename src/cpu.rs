@@ -37,7 +37,9 @@ bitflags! {
     }
 }
 
-pub fn step(nes: &mut Nes) {
+pub fn step(nes: &mut Nes) -> u128 {
+    let before = nes.cpu.cycles;
+
     // fetch
     let opcode = nes.read(nes.cpu.pc);
     nes.cpu.pc += 1;
@@ -206,6 +208,12 @@ pub fn step(nes: &mut Nes) {
         (Mnemonic::RLA, _) => nes.rla(operand),
         (Mnemonic::SRE, _) => nes.sre(operand),
         (Mnemonic::RRA, _) => nes.rra(operand),
+    }
+
+    if before <= nes.cpu.cycles {
+        nes.cpu.cycles - before
+    } else {
+        u128::MAX - before + nes.cpu.cycles
     }
 }
 

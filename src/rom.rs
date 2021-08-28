@@ -15,6 +15,12 @@ pub enum Mirroring {
     Horizontal,
 }
 
+impl Default for Mirroring {
+    fn default() -> Self {
+        Self::Vertical
+    }
+}
+
 pub trait Mapper {
     fn read(&mut self, addr: Word) -> Byte;
     fn write(&mut self, addr: Word, value: Byte);

@@ -418,6 +418,18 @@ impl ops::BitAnd<u16> for Word {
     }
 }
 
+impl ops::BitAndAssign for Word {
+    fn bitand_assign(&mut self, Self(rhs): Self) {
+        *self = Self(self.0 & rhs)
+    }
+}
+
+impl ops::BitAndAssign<u16> for Word {
+    fn bitand_assign(&mut self, rhs: u16) {
+        *self = Self(self.0 & rhs)
+    }
+}
+
 impl ops::BitOr for Word {
     type Output = Self;
 
@@ -439,5 +451,11 @@ impl ops::BitXor<u16> for Word {
 
     fn bitxor(self, rhs: u16) -> Self::Output {
         Self(self.0 ^ rhs)
+    }
+}
+
+impl ops::BitXorAssign<u16> for Word {
+    fn bitxor_assign(&mut self, rhs: u16) {
+        *self = Self(self.0 ^ rhs)
     }
 }

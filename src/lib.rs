@@ -20,4 +20,3 @@ mod cpu;
 mod data_unit;
 mod interrupt;
 mod ppu;
-mod scanline;
