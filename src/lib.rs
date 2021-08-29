@@ -19,6 +19,8 @@ mod data_unit;
 
 mod cpu;
 mod interrupt;
+
+#[cfg(test)]
 mod trace;
 
 mod ppu;

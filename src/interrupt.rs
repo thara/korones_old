@@ -1,4 +1,3 @@
-use crate::cpu::*;
 use crate::nes::*;
 
 bitflags! {
@@ -29,7 +28,9 @@ impl Interrupt {
     }
 }
 
-pub fn handle_interrupt(nes: &mut Nes) {
+pub fn handle_interrupt(nes: &mut Nes) -> u128 {
+    let before = nes.cpu.cycles;
+
     let current = nes.interrupt.get();
     match current {
         Interrupt::RESET => {
@@ -53,5 +54,11 @@ pub fn handle_interrupt(nes: &mut Nes) {
             }
         }
         _ => {}
+    }
+
+    if before <= nes.cpu.cycles {
+        nes.cpu.cycles - before
+    } else {
+        u128::MAX - before + nes.cpu.cycles
     }
 }

@@ -51,6 +51,8 @@ pub(crate) struct Ppu {
     pub mirroring: Mirroring,
 
     scan: Scan,
+
+    pub(crate) frames: u64,
 }
 
 bitflags! {
@@ -157,9 +159,11 @@ impl Scan {
     }
 }
 
-pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
+pub(crate) fn step(nes: &mut Nes) {
     // bg
     let render_enabled = nes.ppu.mask.contains(Mask::RENDER_ENABLED);
+    let mut scan = nes.ppu.scan;
+
     let dot = scan.dot;
     let line = scan.line;
     let v = nes.ppu.v;
@@ -202,7 +206,7 @@ pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
     // scroll
     if render_enabled {
         let mut v = nes.ppu.v;
-        let mut t = nes.ppu.t;
+        let t = nes.ppu.t;
         match (dot, line) {
             (256, 261 | 0..=239) => {
                 // https://wiki.nesdev.com/w/index.php?title=PPU_scrolling#Y_increment
@@ -268,7 +272,7 @@ pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
             nes.oam.eval_sprites(&scan, &mut nes.ppu);
         }
         (257..=320, 261 | 0..=239) => {
-            let (i, spr) = nes.oam.fetch_sprite(scan);
+            let (i, spr) = nes.oam.fetch_sprite(&scan);
             nes.ppu.sprites[i] = spr;
         }
         _ => {}
@@ -300,7 +304,7 @@ pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
 
     match (dot, line) {
         (_, 261) => {
-            if render_enabled && frames % 2 == 0 {
+            if render_enabled && nes.ppu.frames % 2 == 0 {
                 // Skip 0 cycle on visible frame
                 scan.skip();
             }
@@ -317,9 +321,7 @@ pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
     }
 
     if scan.next() {
-        frames + 1
-    } else {
-        frames
+        nes.ppu.frames += 1;
     }
 }
 

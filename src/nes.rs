@@ -4,7 +4,6 @@ use crate::data_unit::*;
 use crate::interrupt::*;
 use crate::ppu::{self, *};
 use crate::rom::*;
-use crate::trace::*;
 
 const HEIGHT: usize = 240;
 const WIDTH: usize = 256;
@@ -50,6 +49,28 @@ impl Default for Nes {
 }
 
 impl Nes {
+    pub fn step_frame(&mut self) {
+        let before = self.ppu.frames;
+
+        while before == self.ppu.frames {
+            self.step();
+        }
+    }
+
+    pub fn step(&mut self) {
+        let cycles = if self.cpu.interrupted() {
+            handle_interrupt(self)
+        } else {
+            cpu::step(self)
+        };
+
+        let mut ppu_cycles = cycles * 3;
+        while 0 < ppu_cycles {
+            ppu::step(self);
+            ppu_cycles -= 1;
+        }
+    }
+
     fn set_rom(&mut self, rom: Rom) {
         self.mapper = rom.mapper;
         self.ppu.mirroring = self.mapper.mirroring();
@@ -113,51 +134,50 @@ impl Nes {
     }
 }
 
-// nestest
-impl Nes {
-    fn nestest<F: FnMut(&Trace)>(&mut self, mut f: F) {
-        let mut scan: ppu::Scan = Default::default();
-        let mut frames: u64 = 0;
-
-        // initial state
-        self.cpu.pc = 0xC000u16.into();
-        // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
-        self.cpu.p = cpu::Status::from_bits_truncate(0x24);
-        self.cpu.cycles = 7;
-        for _ in 0..7 {
-            frames = ppu::step(self, &mut scan, frames);
-            frames = ppu::step(self, &mut scan, frames);
-            frames = ppu::step(self, &mut scan, frames);
-        }
-
-        loop {
-            handle_interrupt(self);
-
-            let trace = Trace::new(self);
-            f(&trace);
-
-            let cycles = cpu::step(self);
-
-            let mut ppu_cycles = cycles * 3;
-            while 0 < ppu_cycles {
-                frames = ppu::step(self, &mut scan, frames);
-                ppu_cycles -= 1;
-            }
-
-            if 26554 < self.cpu.cycles {
-                break;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::cpu;
+    use crate::trace::*;
+
     use crate::controller::StandardController;
     use std::fs::File;
     use std::io::{self, BufRead};
     use std::path::Path;
+
+    impl Nes {
+        fn nestest<F: FnMut(&Trace)>(&mut self, mut f: F) {
+            // initial state
+            self.cpu.pc = 0xC000u16.into();
+            // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
+            self.cpu.p = cpu::Status::from_bits_truncate(0x24);
+            self.cpu.cycles = 7;
+            for _ in 0..7 {
+                ppu::step(self);
+                ppu::step(self);
+                ppu::step(self);
+            }
+
+            loop {
+                handle_interrupt(self);
+
+                let trace = Trace::new(self);
+                f(&trace);
+
+                let cycles = cpu::step(self);
+
+                let mut ppu_cycles = cycles * 3;
+                while 0 < ppu_cycles {
+                    ppu::step(self);
+                    ppu_cycles -= 1;
+                }
+
+                if 26554 < self.cpu.cycles {
+                    break;
+                }
+            }
+        }
+    }
 
     #[test]
     fn nestest() {
