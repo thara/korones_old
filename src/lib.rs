@@ -16,6 +16,7 @@ pub mod rom;
 
 #[macro_use]
 mod bus;
+mod controller;
 mod cpu;
 mod data_unit;
 mod interrupt;

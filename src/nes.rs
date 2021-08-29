@@ -1,3 +1,4 @@
+use crate::controller::{self, Controller};
 use crate::cpu::*;
 use crate::data_unit::*;
 use crate::interrupt::*;
@@ -20,6 +21,8 @@ pub struct Nes {
     pub(crate) pallete_ram_idx: [Byte; 0x0020],
 
     pub(crate) mapper: Box<dyn Mapper>,
+    pub(crate) controller_1: Box<dyn Controller>,
+    pub(crate) controller_2: Box<dyn Controller>,
 
     buffers: [FrameBuffer; 2],
     buffer_index: usize,
@@ -36,6 +39,8 @@ impl Default for Nes {
             name_table: [Default::default(); 0x1000],
             pallete_ram_idx: [Default::default(); 0x0020],
             mapper: Box::new(MapperDefault {}),
+            controller_1: Box::new(controller::Empty {}),
+            controller_2: Box::new(controller::Empty {}),
             buffers: [[0; 240 * 256], [0; 240 * 256]],
             buffer_index: 0,
         }
@@ -44,33 +49,33 @@ impl Default for Nes {
 
 impl Nes {
     pub(crate) fn read_bus(&mut self, addr: impl Into<Word>) -> Byte {
-        let w = addr.into();
-        let a: u16 = w.into();
+        let addr = addr.into();
+        let a: u16 = addr.into();
         match a {
             0x0000..=0x1FFF => self.wram[a as usize].into(),
             0x2000..=0x3FFF => self.read_ppu_register(to_ppu_addr(a)),
             // 0x4000..=0x4013 | 0x4015 => nes.apu.read_status(),
-            // 0x4016 => nes.controller_1.read(),
-            // 0x4017 => nes.controller_2.read(),
-            // 0x4020..=0xFFFF => nes.mapper.read(addr),
+            0x4016 => self.controller_1.read(),
+            0x4017 => self.controller_2.read(),
+            0x4020..=0xFFFF => self.mapper.read(addr),
             _ => 0u8.into(),
         }
     }
 
     pub(crate) fn write_bus(&mut self, addr: impl Into<Word>, value: impl Into<Byte>) {
-        let w = addr.into();
-        let a: u16 = w.into();
+        let addr = addr.into();
+        let a: u16 = addr.into();
         let v = value.into();
         match a {
             0x0000..=0x1FFF => self.wram[a as usize] = v.into(),
             0x2000..=0x3FFF => self.write_ppu_register(to_ppu_addr(a), v),
             // 0x4000..=0x4013 | 0x4015 => nes.apu.write(addr, value),
-            // 0x4016 => nes.controller_1.write(value),
-            // 0x4017 => {
-            //     nes.controller_2.write(value);
-            //     nes.apu.write(addr, value);
-            // }
-            // 0x4020..=0xFFFF => nes.mapper.write(addr, value),
+            0x4016 => self.controller_1.write(v),
+            0x4017 => {
+                self.controller_2.write(v);
+                //     self.apu.write(addr, value);
+            }
+            0x4020..=0xFFFF => self.mapper.write(addr, v),
             _ => {
                 //NOP
             }
