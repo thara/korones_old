@@ -134,11 +134,6 @@ pub(crate) struct Scan {
 }
 
 impl Scan {
-    pub(crate) fn clear(&mut self) {
-        self.dot = 0;
-        self.line = 0;
-    }
-
     fn skip(&mut self) {
         self.dot += 1;
     }
@@ -598,12 +593,6 @@ impl Ppu {
 struct Pattern {
     pub(super) low: Word,
     pub(super) high: Word,
-}
-
-impl Pattern {
-    fn nth(&self, x: u8) -> u16 {
-        self.high.nth(x) << 1 | self.low.nth(x)
-    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]

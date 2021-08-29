@@ -17,7 +17,7 @@ pub(crate) struct Apu {
     frame_sequence_step: u8,
     frame_interrupted: bool,
 
-    audio_buffer: Box<dyn AudioBuffer>,
+    pub(crate) audio_buffer: Box<dyn AudioBuffer>,
 }
 
 pub trait AudioBuffer {

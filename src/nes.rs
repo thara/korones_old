@@ -39,6 +39,13 @@ impl Nes {
             ..Default::default()
         }
     }
+
+    pub(crate) fn clear(&mut self) {
+        self.interrupt.remove(Interrupt::NMI | Interrupt::IRQ);
+        self.interrupt.insert(Interrupt::RESET);
+        self.wram = [0; 0x2000];
+        self.ppu = Ppu::default();
+    }
 }
 
 impl Default for Nes {
@@ -89,7 +96,7 @@ impl Nes {
         }
     }
 
-    fn set_rom(&mut self, rom: Rom) {
+    pub(crate) fn set_rom(&mut self, rom: Rom) {
         self.mapper = rom.mapper;
         self.ppu.mirroring = self.mapper.mirroring();
     }
