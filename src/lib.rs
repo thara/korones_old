@@ -14,7 +14,6 @@ pub mod emulator;
 pub mod nes;
 pub mod rom;
 
-#[macro_use]
 mod bus;
 mod controller;
 mod cpu;
