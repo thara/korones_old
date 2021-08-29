@@ -1,13 +1,13 @@
-use crate::nes;
+use crate::nes::Nes;
 
 pub struct Emulator {
-    nes: nes::Nes,
+    nes: Nes,
 }
 
 impl Emulator {
-    pub fn new() -> Self {
+    pub fn new(sampling_rate: u32, frame_period: u32) -> Self {
         Self {
-            nes: Default::default(),
+            nes: Nes::new(sampling_rate, frame_period),
         }
     }
 

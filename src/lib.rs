@@ -23,6 +23,7 @@ mod interrupt;
 #[cfg(test)]
 mod trace;
 
+mod apu;
 mod ppu;
 
 mod controller;

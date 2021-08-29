@@ -1,3 +1,4 @@
+use crate::apu::{self, *};
 use crate::controller::{self, Controller};
 use crate::cpu::{self, *};
 use crate::data_unit::*;
@@ -21,12 +22,23 @@ pub struct Nes {
     pub(crate) name_table: [Byte; 0x1000],
     pub(crate) pallete_ram_idx: [Byte; 0x0020],
 
+    pub(crate) apu: Apu,
+
     pub(crate) mapper: Box<dyn Mapper>,
     pub(crate) controller_1: Box<dyn Controller>,
     pub(crate) controller_2: Box<dyn Controller>,
 
     buffers: [FrameBuffer; 2],
     buffer_index: usize,
+}
+
+impl Nes {
+    pub(crate) fn new(sampling_rate: u32, frame_period: u32) -> Self {
+        Self {
+            apu: Apu::new(sampling_rate, frame_period),
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for Nes {
@@ -40,6 +52,7 @@ impl Default for Nes {
             name_table: [Default::default(); 0x1000],
             pallete_ram_idx: [Default::default(); 0x0020],
             mapper: Box::new(MapperDefault {}),
+            apu: Apu::new(0, 0),
             controller_1: Box::new(controller::Empty {}),
             controller_2: Box::new(controller::Empty {}),
             buffers: [[0; FRAME_BUFFER_LEN], [0; FRAME_BUFFER_LEN]],
@@ -58,11 +71,16 @@ impl Nes {
     }
 
     pub fn step(&mut self) {
-        let cycles = if self.cpu.interrupted() {
+        let mut cycles = if self.cpu.interrupted() {
             handle_interrupt(self)
         } else {
             cpu::step(self)
         };
+
+        for _ in 0..cycles {
+            let cpu_steel = apu::step(self);
+            cycles += cpu_steel;
+        }
 
         let mut ppu_cycles = cycles * 3;
         while 0 < ppu_cycles {
@@ -84,7 +102,7 @@ impl Nes {
         match a {
             0x0000..=0x1FFF => self.wram[a as usize].into(),
             0x2000..=0x3FFF => self.read_ppu_register(to_ppu_addr(a)),
-            // 0x4000..=0x4013 | 0x4015 => nes.apu.read_status(),
+            0x4000..=0x4013 | 0x4015 => self.apu.read_status(),
             0x4016 => self.controller_1.read(),
             0x4017 => self.controller_2.read(),
             0x4020..=0xFFFF => self.mapper.read(addr),
@@ -99,11 +117,11 @@ impl Nes {
         match a {
             0x0000..=0x1FFF => self.wram[a as usize] = v.into(),
             0x2000..=0x3FFF => self.write_ppu_register(to_ppu_addr(a), v),
-            // 0x4000..=0x4013 | 0x4015 => nes.apu.write(addr, value),
+            0x4000..=0x4013 | 0x4015 => self.apu.write(addr, v),
             0x4016 => self.controller_1.write(v),
             0x4017 => {
                 self.controller_2.write(v);
-                //     self.apu.write(addr, value);
+                self.apu.write(addr, v);
             }
             0x4020..=0xFFFF => self.mapper.write(addr, v),
             _ => {
