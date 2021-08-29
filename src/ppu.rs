@@ -5,8 +5,8 @@ use crate::interrupt::*;
 use crate::nes::*;
 use crate::rom::Mirroring;
 
-const MAX_DOT: u16 = 340;
-const MAX_LINE: i16 = 261;
+pub const MAX_DOT: u16 = 340;
+pub const MAX_LINE: i16 = 261;
 
 const SPRITE_LIMIT: usize = 8;
 const SPRITE_COUNT: usize = 64;
@@ -295,7 +295,7 @@ pub(crate) fn step(nes: &mut Nes, scan: &mut Scan, frames: u64) -> u64 {
         };
 
         let pixel = nes.read_ppu(addr);
-        nes.write_buffer(x.into(), line as usize, pixel);
+        nes.write_buffer(dot.into(), line as usize, pixel);
     }
 
     match (dot, line) {

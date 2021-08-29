@@ -1,14 +1,16 @@
 use crate::controller::{self, Controller};
-use crate::cpu::*;
+use crate::cpu::{self, *};
 use crate::data_unit::*;
 use crate::interrupt::*;
-use crate::ppu::*;
+use crate::ppu::{self, *};
 use crate::rom::*;
+use crate::trace::*;
 
 const HEIGHT: usize = 240;
 const WIDTH: usize = 256;
 
-type FrameBuffer = [u8; 240 * 256];
+const FRAME_BUFFER_LEN: usize = (ppu::MAX_LINE as usize) * (ppu::MAX_DOT as usize);
+type FrameBuffer = [u8; FRAME_BUFFER_LEN];
 
 pub struct Nes {
     pub(crate) cpu: Cpu,
@@ -41,9 +43,16 @@ impl Default for Nes {
             mapper: Box::new(MapperDefault {}),
             controller_1: Box::new(controller::Empty {}),
             controller_2: Box::new(controller::Empty {}),
-            buffers: [[0; 240 * 256], [0; 240 * 256]],
+            buffers: [[0; FRAME_BUFFER_LEN], [0; FRAME_BUFFER_LEN]],
             buffer_index: 0,
         }
+    }
+}
+
+impl Nes {
+    fn set_rom(&mut self, rom: Rom) {
+        self.mapper = rom.mapper;
+        self.ppu.mirroring = self.mapper.mirroring();
     }
 }
 
@@ -101,5 +110,78 @@ impl Nes {
 
     pub(crate) fn swap_buffers(&mut self) {
         self.buffer_index = (self.buffer_index + 1) % 2;
+    }
+}
+
+// nestest
+impl Nes {
+    fn nestest<F: FnMut(&Trace)>(&mut self, mut f: F) {
+        let mut scan: ppu::Scan = Default::default();
+        let mut frames: u64 = 0;
+
+        // initial state
+        self.cpu.pc = 0xC000u16.into();
+        // https://wiki.nesdev.com/w/index.php/CPU_power_up_state#cite_ref-1
+        self.cpu.p = cpu::Status::from_bits_truncate(0x24);
+        self.cpu.cycles = 7;
+        for _ in 0..7 {
+            frames = ppu::step(self, &mut scan, frames);
+            frames = ppu::step(self, &mut scan, frames);
+            frames = ppu::step(self, &mut scan, frames);
+        }
+
+        loop {
+            handle_interrupt(self);
+
+            let trace = Trace::new(self);
+            f(&trace);
+
+            let cycles = cpu::step(self);
+
+            let mut ppu_cycles = cycles * 3;
+            while 0 < ppu_cycles {
+                frames = ppu::step(self, &mut scan, frames);
+                ppu_cycles -= 1;
+            }
+
+            if 26554 < self.cpu.cycles {
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::controller::StandardController;
+    use std::fs::File;
+    use std::io::{self, BufRead};
+    use std::path::Path;
+
+    #[test]
+    fn nestest() {
+        let nes_dir = env!("CARGO_MANIFEST_DIR");
+
+        let rom_path = Path::new(nes_dir).join("roms/nes-test-roms/other/nestest.nes");
+        let rom = Rom::load_file(rom_path).unwrap();
+
+        let mut nes: Nes = Default::default();
+
+        nes.controller_1 = Box::new(StandardController::default());
+        nes.controller_2 = Box::new(StandardController::default());
+
+        nes.set_rom(rom);
+        nes.power_on();
+
+        let log_path = Path::new(nes_dir).join("roms/nestest-cpu.log");
+
+        let f = File::open(log_path).unwrap();
+        let mut lines = io::BufReader::new(f).lines();
+
+        nes.nestest(|trace| {
+            let line = lines.next().unwrap().unwrap();
+            assert_eq!(format!("{}", trace), line);
+        });
     }
 }

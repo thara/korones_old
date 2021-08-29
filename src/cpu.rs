@@ -4,19 +4,19 @@ use crate::nes::*;
 
 #[derive(Debug, Default, Clone)]
 pub struct Cpu {
-    a: Byte,
-    x: Byte,
-    y: Byte,
-    s: Byte,
-    p: Status,
-    pc: Word,
+    pub(crate) a: Byte,
+    pub(crate) x: Byte,
+    pub(crate) y: Byte,
+    pub(crate) s: Byte,
+    pub(crate) p: Status,
+    pub(crate) pc: Word,
 
     pub(crate) cycles: u128,
 }
 
 bitflags! {
     #[derive(Default)]
-    struct Status: u8 {
+    pub(crate) struct Status: u8 {
         // Negative
         const N = 1 << 7;
         // Overflow
@@ -34,6 +34,30 @@ bitflags! {
         // https://wiki.nesdev.com/w/index.php/Status_flags#The_B_flag
         const OPERATED_B = 0b110000;
         const INTERRUPTED_B = 0b100000;
+    }
+}
+
+impl Nes {
+    pub fn power_on(&mut self) {
+        // https://wiki.nesdev.com/w/index.php/CPU_power_up_state
+
+        // IRQ disabled
+        self.cpu.p = Status::from_bits_truncate(0x34);
+        self.cpu.a = 0x00.into();
+        self.cpu.x = 0x00.into();
+        self.cpu.y = 0x00.into();
+        self.cpu.s = 0xFD.into();
+        // frame irq disabled
+        self.write(0x4017, 0x00);
+        // all channels disabled
+        self.write(0x4015, 0x00);
+
+        for a in 0x4000..=0x400F {
+            self.write(a, 0x00);
+        }
+        for a in 0x4010..=0x4013 {
+            self.write(a, 0x00);
+        }
     }
 }
 
@@ -217,7 +241,7 @@ pub fn step(nes: &mut Nes) -> u128 {
     }
 }
 
-fn decode(opcode: Byte) -> (Mnemonic, AddressingMode) {
+pub(crate) fn decode(opcode: Byte) -> (Mnemonic, AddressingMode) {
     match opcode.u8() {
         0xA9 => (Mnemonic::LDA, AddressingMode::Immediate),
         0xA5 => (Mnemonic::LDA, AddressingMode::ZeroPage),
@@ -492,7 +516,7 @@ impl Bus for Nes {
 // http://wiki.nesdev.com/w/index.php/CPU_addressing_modes
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[rustfmt::skip]
-enum AddressingMode {
+pub(crate) enum AddressingMode {
     Implicit,
     Accumulator,
     Immediate,
@@ -507,7 +531,7 @@ enum AddressingMode {
 // http://obelisk.me.uk/6502/reference.html
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[rustfmt::skip]
-enum Mnemonic {
+pub(crate) enum Mnemonic {
     // Load/Store Operations
     LDA, LDX, LDY, STA, STX, STY,
     // Register Operations

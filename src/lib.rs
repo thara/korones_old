@@ -15,8 +15,12 @@ pub mod nes;
 pub mod rom;
 
 mod bus;
-mod controller;
-mod cpu;
 mod data_unit;
+
+mod cpu;
 mod interrupt;
+mod trace;
+
 mod ppu;
+
+mod controller;
